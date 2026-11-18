@@ -49,3 +49,10 @@ export const ERROR_CODES = {
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
+
+const KNOWN_CODES: ReadonlySet<string> = new Set(Object.values(ERROR_CODES));
+
+/** True when `value` is a code from the closed registry. */
+export function isErrorCode(value: string): value is ErrorCode {
+  return KNOWN_CODES.has(value);
+}

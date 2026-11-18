@@ -1,5 +1,5 @@
 import { Global, Inject, Injectable, Module, OnApplicationShutdown } from '@nestjs/common';
-import { loadEnv } from '@clinic/shared';
+import { CLOCK, loadEnv, SystemClock } from '@clinic/shared';
 import { Pool } from 'pg';
 import { Redis } from 'ioredis';
 
@@ -22,6 +22,7 @@ class ConnectionsShutdown implements OnApplicationShutdown {
 @Global()
 @Module({
   providers: [
+    { provide: CLOCK, useClass: SystemClock },
     { provide: PG_POOL, useFactory: () => new Pool({ connectionString: loadEnv().DATABASE_URL }) },
     // Redis лише тригер: lazyConnect + без ретраїв команд, щоб його втрата не блокувала api.
     {
@@ -31,6 +32,6 @@ class ConnectionsShutdown implements OnApplicationShutdown {
     },
     ConnectionsShutdown,
   ],
-  exports: [PG_POOL, REDIS],
+  exports: [PG_POOL, REDIS, CLOCK],
 })
 export class DatabaseModule {}

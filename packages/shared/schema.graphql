@@ -1,3 +1,82 @@
+type Clinic {
+  id: Int!
+  city: String!
+  name: String!
+  timezone: String!
+  currency: String!
+}
+
+type Service {
+  id: Int!
+  name: String!
+  durationMinutes: Int!
+  usesUltrasoundRoom: Boolean!
+}
+
+type Doctor {
+  id: Int!
+  specialty: String!
+}
+
+type Patient {
+  id: Int!
+  fullName: String!
+  phone: String
+  email: String
+}
+
+type Appointment {
+  id: Int!
+  status: String!
+  startsAt: DateTime!
+  endsAt: DateTime!
+  localDate: String!
+  priceMinor: Int!
+  currency: String!
+  timeVersion: Int!
+  doctor: Doctor!
+  clinic: Clinic!
+  service: Service!
+  patient: Patient!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type Me {
+  userId: Int!
+  role: String!
+}
+
 type Query {
-  health: String!
+  """The signed-in account."""
+  me: Me!
+
+  """The signed-in patient's own appointments."""
+  myAppointments(first: Int): [Appointment!]!
+
+  """Appointments visible to the actor, filtered within that scope."""
+  appointments(filter: AppointmentFilter, first: Int): [Appointment!]!
+  appointment(id: Int!): Appointment
+}
+
+input AppointmentFilter {
+  patientId: Int
+  doctorId: Int
+  clinicId: Int
+}
+
+type Mutation {
+  register(input: RegisterInput!): Me!
+  login(email: String!, password: String!): Me!
+  logout: Boolean!
+}
+
+input RegisterInput {
+  email: String!
+  password: String!
+  fullName: String!
+  phone: String
 }

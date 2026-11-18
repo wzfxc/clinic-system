@@ -74,12 +74,40 @@ export const appointmentEventKind = pgEnum('appointment_event_kind', [
   'offer_accepted',
 ]);
 
-/** Minimal placeholder: roles and registrar clinic belong to block 6 and are added there. */
-export const users = pgTable('users', {
-  id: id(),
-  email: text('email').notNull().unique(),
-  createdAt: tstz('created_at').notNull(),
-});
+/**
+ * Accounts (docs/analysis/06 section 1). Exactly one of patient / doctor / clinic binding per role is
+ * enforced by users_role_binding_check; the manager is bound to nothing. patients.user_id and
+ * doctors.user_id point back here.
+ */
+export const users = pgTable(
+  'users',
+  {
+    id: id(),
+    email: text('email').notNull().unique(),
+    role: text('role').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    /** Only for receptionists: the clinic they work in. */
+    clinicId: fk('clinic_id'),
+    createdAt: tstz('created_at').notNull(),
+  },
+  (t) => [
+    check('users_role_check', sql`${t.role} IN ('patient','receptionist','doctor','manager')`),
+    check('users_clinic_binding_check', sql`(${t.role} = 'receptionist') = (${t.clinicId} IS NOT NULL)`),
+  ],
+);
+
+/** Opaque server-side sessions: only the sha-256 of the token is stored, so a DB leak yields no usable token. */
+export const sessions = pgTable(
+  'sessions',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    userId: fk('user_id').notNull().references(() => users.id),
+    createdAt: tstz('created_at').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    revokedAt: tstz('revoked_at'),
+  },
+  (t) => [index('sessions_user_idx').on(t.userId)],
+);
 
 export const clinics = pgTable(
   'clinics',

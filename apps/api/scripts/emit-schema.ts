@@ -4,14 +4,18 @@ import path from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
 import { printSchema } from 'graphql';
-import { HealthResolver } from '../src/health.resolver.js';
+import { AuthResolver } from '../src/auth/auth.resolver.js';
+import { AppointmentResolver } from '../src/appointments/appointment.resolver.js';
 
-/** Друкує code-first схему без підняття сервера й зʼєднань; вхід для graphql-codegen. */
+/**
+ * Prints the code-first schema without starting a server or connecting to anything; the input for graphql-codegen.
+ * Run through `schema:emit` (tsc, so decorator metadata is emitted), with the package directory as cwd.
+ */
 async function main(): Promise<void> {
   const app = await NestFactory.create(GraphQLSchemaBuilderModule, { logger: false });
   await app.init();
-  const schema = await app.get(GraphQLSchemaFactory).create([HealthResolver]);
-  const target = path.resolve(import.meta.dirname, '../../../packages/shared/schema.graphql');
+  const schema = await app.get(GraphQLSchemaFactory).create([AuthResolver, AppointmentResolver]);
+  const target = path.resolve(process.cwd(), '../../packages/shared/schema.graphql');
   writeFileSync(target, `${printSchema(schema)}\n`, 'utf8');
   await app.close();
 }

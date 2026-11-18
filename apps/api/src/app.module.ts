@@ -1,17 +1,26 @@
 import { Module } from '@nestjs/common';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { GraphQLModule } from '@nestjs/graphql';
-import { CLOCK, SystemClock } from '@clinic/shared';
-import { DatabaseModule } from './database.module.js';
+import type { Pool } from 'pg';
+import { CLOCK, type Clock } from '@clinic/shared';
+import { DatabaseModule, PG_POOL } from './database.module.js';
 import { HealthController } from './health.controller.js';
 import { HealthResolver } from './health.resolver.js';
+import { AuthResolver } from './auth/auth.resolver.js';
+import { AppointmentResolver } from './appointments/appointment.resolver.js';
+import { buildGraphqlOptions } from './graphql/graphql.options.js';
 
 @Module({
   imports: [
     DatabaseModule,
-    GraphQLModule.forRoot<ApolloDriverConfig>({ driver: ApolloDriver, autoSchemaFile: true, path: '/graphql' }),
+    GraphQLModule.forRootAsync<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      inject: [PG_POOL, CLOCK],
+      useFactory: (pool: Pool, clock: Clock) =>
+        buildGraphqlOptions({ pool, clock, production: process.env['NODE_ENV'] === 'production' }),
+    }),
   ],
   controllers: [HealthController],
-  providers: [HealthResolver, { provide: CLOCK, useClass: SystemClock }],
+  providers: [HealthResolver, AuthResolver, AppointmentResolver],
 })
 export class AppModule {}
