@@ -52,10 +52,15 @@ export class WaitlistService {
       );
       let handled = 0;
       for (const row of due.rows) {
-        const done = await this.run((tx, clock) =>
-          closeOffer(tx, clock, Number(row.id), 'expired', { skipLocked: true, onlyDue: true }),
-        );
-        if (done) handled += 1;
+        try {
+          const done = await this.run((tx, clock) =>
+            closeOffer(tx, clock, Number(row.id), 'expired', { skipLocked: true, onlyDue: true }),
+          );
+          if (done) handled += 1;
+        } catch (err) {
+          // A deadlock victim is retried by the next sweep; one busy offer must not stop the rest.
+          if (!(err instanceof BookingError && err.code === 'CONFLICT_RETRY')) throw err;
+        }
       }
       closed += handled;
       if (handled === 0 || due.rows.length < limit) return closed;

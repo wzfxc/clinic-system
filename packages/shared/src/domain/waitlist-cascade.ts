@@ -282,6 +282,19 @@ export async function closeOffer(
   options: CloseOfferOptions,
 ): Promise<boolean> {
   const now = clock.now();
+  // Lock order is doctor (then room) before the offer row, as in hold/reschedule/sick-leave; so the
+  // doctor and room are found by a plain read first and the row lock comes only after them.
+  const peek = await tx.query<{ doctor_id: string; clinic_id: string; uses_ultrasound_room: boolean }>(
+    `SELECT a.doctor_id, a.clinic_id, a.uses_ultrasound_room
+       FROM waitlist_offers o JOIN appointments a ON a.id = o.appointment_id
+      WHERE o.id = $1 AND o.status = 'pending' AND (NOT $3::boolean OR o.expires_at <= $2)`,
+    [offerId, now, options.onlyDue],
+  );
+  const target = peek.rows[0];
+  if (!target) return false;
+  await advisoryLock(tx, `doctor:${target.doctor_id}`);
+  if (target.uses_ultrasound_room) await advisoryLock(tx, `room:${target.clinic_id}`);
+
   const { rows } = await tx.query<{ entry_id: string; appointment_id: string; chain_id: string }>(
     `SELECT entry_id, appointment_id, chain_id FROM waitlist_offers
       WHERE id = $1 AND status = 'pending' AND (NOT $3::boolean OR expires_at <= $2)

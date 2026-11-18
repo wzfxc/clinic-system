@@ -175,12 +175,15 @@ export interface DeclineInput {
 export async function declineOffer(tx: Tx, clock: Clock, input: DeclineInput): Promise<void> {
   await loadOwnOffer(tx, input.offerId, input.patientId, false);
   await lockPatient(tx, input.patientId);
-  const offer = await loadOwnOffer(tx, input.offerId, input.patientId, true);
+  // No offer row lock here: closeOffer takes the doctor lock first and then the row, and re-checks 'pending'.
+  const offer = await loadOwnOffer(tx, input.offerId, input.patientId, false);
   if (offer.status === 'expired' || (offer.status === 'pending' && offer.expires_at <= clock.now())) {
     throw new BookingError('OFFER_EXPIRED');
   }
   if (offer.status !== 'pending') throw new BookingError('OFFER_NOT_FOUND');
-  await closeOffer(tx, clock, input.offerId, 'declined', { skipLocked: false, onlyDue: false });
+  const closed = await closeOffer(tx, clock, input.offerId, 'declined', { skipLocked: false, onlyDue: false });
+  if (!closed) throw new BookingError('OFFER_NOT_FOUND'); // handled by someone else in the meantime
+
 }
 
 export interface SickLeaveEntry {
