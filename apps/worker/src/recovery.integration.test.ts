@@ -173,27 +173,27 @@ describe('Redis loss (acceptance 10)', () => {
 });
 
 describe('several worker copies', () => {
-  /** `n` booked visits 45 minutes apart over consecutive days, each with its own patient. */
+  /** `n` (at most 16) booked visits 45 minutes apart on 5 June, each with its own patient; returns the first start. */
   async function manyVisits(n: number): Promise<number> {
     const s = await setupWorld(db, clock, undefined, { workStart: '08:00', workEnd: '20:00' });
-    let last = 0;
+    let first = 0;
     for (let i = 0; i < n; i++) {
       const patientId = await patientWithEmail(db.pool, i);
-      const startsAt = new Date(kyiv('2026-06-05', '09:00').getTime() + Math.floor(i / 16) * 24 * HOUR_MS + (i % 16) * 45 * MINUTE_MS);
+      const startsAt = new Date(kyiv('2026-06-05', '09:00').getTime() + i * 45 * MINUTE_MS);
       await db.inTx(NOW, (c) =>
         insertRawAppointment(c, { w: s.w, doctorId: s.doctorId, patientId, startsAt, createdAt: NOW }),
       );
-      last = startsAt.getTime();
+      if (i === 0) first = startsAt.getTime();
     }
-    return last;
+    return first;
   }
 
   it('acceptance 11: three copies send every reminder exactly once', async () => {
-    const visits = 40;
-    const last = await manyVisits(visits);
-    clock.set(new Date(last)); // every h24 and h2 is due
+    const first = await manyVisits(16);
+    clock.set(new Date(first - HOUR_MS)); // every h24 is due, and the h2 of the first visits
+    const expected = await count(db.pool, `SELECT count(*) AS n FROM reminders WHERE due_at <= $1 AND skipped_at IS NULL`, [clock.now()]);
+    expect(expected).toBeGreaterThan(16);
     await Promise.all(['w1', 'w2', 'w3'].map((name) => startWorker(name)));
-    const expected = visits * 2;
 
     await waitFor('all mail sent', async () =>
       (await count(db.pool, `SELECT count(*) AS n FROM email_outbox WHERE status = 'sent'`)) === expected);
@@ -206,13 +206,14 @@ describe('several worker copies', () => {
   });
 
   it('copies sweeping at the same instant never run the same row twice', async () => {
-    await manyVisits(30);
-    clock.set(new Date(NOW.getTime() + 8 * 24 * HOUR_MS));
+    const first = await manyVisits(16);
+    clock.set(new Date(first - HOUR_MS));
+    const expected = await count(db.pool, `SELECT count(*) AS n FROM reminders WHERE due_at <= $1 AND skipped_at IS NULL`, [clock.now()]);
     for (let round = 0; round < 3; round++) {
       await Promise.all(['a', 'b', 'c', 'd'].map((name) => sweepOnce(sweepDeps(name))));
     }
-    expect(mailer.sent).toHaveLength(60);
-    expect(new Set(mailer.sent.map((m) => m.messageId)).size).toBe(60);
+    expect(mailer.sent).toHaveLength(expected);
+    expect(new Set(mailer.sent.map((m) => m.messageId)).size).toBe(expected);
   });
 
   it('acceptance 13: sick leave with 12 visits mails each patient exactly once, even when marked twice', async () => {

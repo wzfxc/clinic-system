@@ -25,7 +25,7 @@ interface VisitRow {
  * waits for this transaction or has already cancelled it. A reminder for a visit that has moved or
  * is no longer booked is cancelled instead of mailed.
  */
-async function settle(tx: Tx, now: Date, due: DueReminder): Promise<boolean> {
+async function settle(tx: Tx, now: Date, due: DueReminder): Promise<'mailed' | 'closed'> {
   const { rows } = await tx.query<VisitRow>(
     `SELECT a.status, a.starts_at, a.time_version, p.id AS patient_id, p.email, c.timezone
        FROM appointments a
@@ -42,7 +42,12 @@ async function settle(tx: Tx, now: Date, due: DueReminder): Promise<boolean> {
     visit.starts_at.getTime() === due.start_snapshot.getTime();
   if (!current) {
     await tx.query(`UPDATE reminders SET cancelled_at = $2 WHERE id = $1`, [due.id, now]);
-    return false;
+    return 'closed';
+  }
+  // Found after the visit began (a long outage): the reminder is useless, so it is skipped, not mailed.
+  if (due.start_snapshot.getTime() <= now.getTime()) {
+    await tx.query(`UPDATE reminders SET skipped_at = $2 WHERE id = $1`, [due.id, now]);
+    return 'closed';
   }
   const email = visit.email;
   await tx.query(
@@ -66,7 +71,7 @@ async function settle(tx: Tx, now: Date, due: DueReminder): Promise<boolean> {
     ],
   );
   await tx.query(`UPDATE reminders SET enqueued_at = $2 WHERE id = $1`, [due.id, now]);
-  return true;
+  return 'mailed';
 }
 
 /**
@@ -79,6 +84,7 @@ export async function processDueReminders(
   clock: Clock,
   cfg: WorkerConfig,
   onlyId?: number,
+  report: (message: string, err: unknown) => void = () => {},
 ): Promise<number> {
   let created = 0;
   for (;;) {
@@ -94,10 +100,23 @@ export async function processDueReminders(
         [now, cfg.batchSize, onlyId ?? null],
       );
       let mailed = 0;
-      for (const due of rows) if (await settle(tx, now, due)) mailed += 1;
-      return { rows: rows.length, mailed };
+      let closed = 0;
+      for (const due of rows) {
+        // One bad row must not roll back, or forever block, the healthy rows behind it.
+        await tx.query('SAVEPOINT reminder');
+        try {
+          if ((await settle(tx, now, due)) === 'mailed') mailed += 1;
+          else closed += 1;
+          await tx.query('RELEASE SAVEPOINT reminder');
+        } catch (err) {
+          await tx.query('ROLLBACK TO SAVEPOINT reminder');
+          report(`reminder ${due.id} could not be settled and stays pending`, err);
+        }
+      }
+      return { mailed, settled: mailed + closed };
     });
     created += handled.mailed;
-    if (handled.rows === 0 || onlyId !== undefined) return created;
+    // A pass that settled nothing (empty, or only failing rows) ends the loop instead of spinning on them.
+    if (handled.settled === 0 || onlyId !== undefined) return created;
   }
 }

@@ -12,6 +12,8 @@ export interface SweepDeps {
   mailer: Mailer;
   workerId: string;
   config: WorkerConfig;
+  /** Where failures and dead mail are reported; the sweep keeps going past a failing step. */
+  onError?: (message: string, err: unknown) => void;
 }
 
 export interface SweepResult {
@@ -28,9 +30,24 @@ export interface SweepResult {
  */
 export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
   const { pool, clock, mailer, workerId, config } = deps;
-  const holdsFreed = await releaseExpiredHolds(pool, clock, config);
-  const keysPurged = await purgeExpiredIdempotencyKeys(pool, clock, config);
-  const reminders = await processDueReminders(pool, clock, config);
-  const mail = await drainOutbox(pool, clock, mailer, workerId, config);
+  const report = deps.onError ?? (() => {});
+  const failures: unknown[] = [];
+  // Each step stands alone: a failing one is reported and rethrown at the end, never hides the others.
+  const step = async <T>(name: string, fallback: T, fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      report(`sweep step ${name} failed`, err);
+      failures.push(err);
+      return fallback;
+    }
+  };
+  const holdsFreed = await step('holds', 0, () => releaseExpiredHolds(pool, clock, config));
+  const keysPurged = await step('idempotency', 0, () => purgeExpiredIdempotencyKeys(pool, clock, config));
+  const reminders = await step('reminders', 0, () => processDueReminders(pool, clock, config, undefined, report));
+  const mail = await step('mail', { sent: 0, retried: 0, dead: 0 }, () =>
+    drainOutbox(pool, clock, mailer, workerId, config, undefined, report),
+  );
+  if (failures.length > 0) throw new AggregateError(failures, `${failures.length} sweep step(s) failed`);
   return { holdsFreed, keysPurged, reminders, mailSent: mail.sent };
 }

@@ -47,7 +47,14 @@ export class WorkerRuntime {
     for (const c of this.connections) c.on('error', (err: Error) => onError('redis', err));
     this.triggers = new Triggers(queueConn, workerConn, this.deps.bullPrefix, onError);
 
-    await sweepOnce(this.deps);
+    try {
+      await sweepOnce(this.deps);
+    } catch (err) {
+      // Nothing is running yet, so release what was opened and let the caller decide (the process exits and restarts).
+      await this.triggers.close();
+      for (const c of this.connections) c.disconnect();
+      throw err;
+    }
     await this.safely('initial reseed', async () => {
       await this.reseed();
       await this.triggers?.ensureEpoch(this.epoch);
@@ -68,17 +75,17 @@ export class WorkerRuntime {
 
   /** The BullMQ handler: the same idempotent function the sweeper uses, narrowed to one row. */
   private async handle(payload: TriggerPayload): Promise<void> {
-    const { pool, clock, mailer, workerId, config } = this.deps;
+    const { pool, clock, mailer, workerId, config, onError } = this.deps;
     switch (payload.kind) {
       case 'reminder':
-        await processDueReminders(pool, clock, config, payload.subjectId);
-        await drainOutbox(pool, clock, mailer, workerId, config);
+        await processDueReminders(pool, clock, config, payload.subjectId, onError);
+        await drainOutbox(pool, clock, mailer, workerId, config, undefined, onError);
         return;
       case 'hold-expiry':
         await releaseExpiredHolds(pool, clock, config, payload.subjectId);
         return;
       case 'email-send':
-        await drainOutbox(pool, clock, mailer, workerId, config, payload.subjectId);
+        await drainOutbox(pool, clock, mailer, workerId, config, payload.subjectId, onError);
         return;
     }
   }

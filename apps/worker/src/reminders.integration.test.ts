@@ -158,6 +158,27 @@ describe('reminders', () => {
     await sweep();
     expect(mailer.sent[0]?.text).toContain('2027-03-28 12:00');
   });
+
+  it('a mail queued earlier is not sent if the visit was cancelled meanwhile (stale_visit)', async () => {
+    const s = await setupWorld(db, clock);
+    const patientId = await patientWithEmail(db.pool, 1);
+    const a = await bookVisit(s, patientId, kyiv('2026-06-05', '12:00'));
+    clock.set(new Date(a.startsAt.getTime() - 24 * HOUR_MS));
+    await processDueReminders(db.pool, clock, TEST_CONFIG);
+    await s.svc.cancel({ appointmentId: a.id, actor: { role: 'patient', userId: 1, patientId }, reason: 'changed my mind' });
+    expect(await drainOutbox(db.pool, clock, mailer, 'w1', TEST_CONFIG)).toEqual({ sent: 0, retried: 0, dead: 1 });
+    expect(mailer.sent).toHaveLength(0);
+    expect((await db.pool.query(`SELECT last_error FROM email_outbox`)).rows).toEqual([{ last_error: 'stale_visit' }]);
+  });
+
+  it('a reminder found only after the visit began is skipped, not mailed', async () => {
+    const s = await setupWorld(db, clock);
+    const a = await booked(s, kyiv('2026-06-05', '12:00'));
+    clock.set(new Date(a.startsAt.getTime() + HOUR_MS));
+    await sweep();
+    expect(mailer.sent).toHaveLength(0);
+    expect((await reminderRows(a.id)).every((r) => r.skipped)).toBe(true);
+  });
 });
 
 describe('outbox delivery', () => {
