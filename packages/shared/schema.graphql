@@ -50,6 +50,11 @@ type Me {
   role: String!
 }
 
+type SickLeavePayload {
+  applied: Boolean!
+  cancelledAppointmentIds: [Int!]!
+}
+
 type Query {
   """The signed-in account."""
   me: Me!
@@ -72,6 +77,26 @@ type Mutation {
   register(input: RegisterInput!): Me!
   login(email: String!, password: String!): Me!
   logout: Boolean!
+
+  """Places a 15-minute checkout hold for the signed-in patient."""
+  holdSlot(input: HoldSlotInput!): Appointment!
+  confirmAppointment(appointmentId: Int!, idempotencyKey: String!): Appointment!
+
+  """Cancels a booked or held visit. Patient: own; registrar: own clinic."""
+  cancelAppointment(appointmentId: Int!, reason: String!): Appointment!
+  rescheduleAppointment(appointmentId: Int!, expectedVersion: Int!, newStartsAt: DateTime!): Appointment!
+
+  """Joins the waitlist; returns the entry id."""
+  joinWaitlist(input: JoinWaitlistInput!): Int!
+  leaveWaitlist(entryId: Int!): Boolean!
+  acceptOffer(offerId: Int!, idempotencyKey: String!): Appointment!
+  declineOffer(offerId: Int!): Boolean!
+
+  """Registrar or doctor moves a visit to checked_in, no_show or completed."""
+  changeAppointmentStatus(appointmentId: Int!, to: String!): Appointment!
+
+  """Registrar marks a doctor sick for a clinic day."""
+  markSickLeave(doctorId: Int!, clinicId: Int!, date: String!): SickLeavePayload!
 }
 
 input RegisterInput {
@@ -79,4 +104,19 @@ input RegisterInput {
   password: String!
   fullName: String!
   phone: String
+}
+
+input HoldSlotInput {
+  doctorId: Int!
+  clinicId: Int!
+  serviceId: Int!
+  startsAt: DateTime!
+}
+
+input JoinWaitlistInput {
+  doctorId: Int!
+  clinicId: Int!
+  serviceId: Int!
+  dateFrom: String!
+  dateTo: String!
 }

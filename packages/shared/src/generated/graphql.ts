@@ -53,6 +53,21 @@ export type Doctor = {
   specialty: Scalars['String']['output'];
 };
 
+export type HoldSlotInput = {
+  clinicId: Scalars['Int']['input'];
+  doctorId: Scalars['Int']['input'];
+  serviceId: Scalars['Int']['input'];
+  startsAt: Scalars['DateTime']['input'];
+};
+
+export type JoinWaitlistInput = {
+  clinicId: Scalars['Int']['input'];
+  dateFrom: Scalars['String']['input'];
+  dateTo: Scalars['String']['input'];
+  doctorId: Scalars['Int']['input'];
+  serviceId: Scalars['Int']['input'];
+};
+
 export type Me = {
   __typename?: 'Me';
   role: Scalars['String']['output'];
@@ -61,9 +76,68 @@ export type Me = {
 
 export type Mutation = {
   __typename?: 'Mutation';
+  acceptOffer: Appointment;
+  /** Cancels a booked or held visit. Patient: own; registrar: own clinic. */
+  cancelAppointment: Appointment;
+  /** Registrar or doctor moves a visit to checked_in, no_show or completed. */
+  changeAppointmentStatus: Appointment;
+  confirmAppointment: Appointment;
+  declineOffer: Scalars['Boolean']['output'];
+  /** Places a 15-minute checkout hold for the signed-in patient. */
+  holdSlot: Appointment;
+  /** Joins the waitlist; returns the entry id. */
+  joinWaitlist: Scalars['Int']['output'];
+  leaveWaitlist: Scalars['Boolean']['output'];
   login: Me;
   logout: Scalars['Boolean']['output'];
+  /** Registrar marks a doctor sick for a clinic day. */
+  markSickLeave: SickLeavePayload;
   register: Me;
+  rescheduleAppointment: Appointment;
+};
+
+
+export type MutationAcceptOfferArgs = {
+  idempotencyKey: Scalars['String']['input'];
+  offerId: Scalars['Int']['input'];
+};
+
+
+export type MutationCancelAppointmentArgs = {
+  appointmentId: Scalars['Int']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationChangeAppointmentStatusArgs = {
+  appointmentId: Scalars['Int']['input'];
+  to: Scalars['String']['input'];
+};
+
+
+export type MutationConfirmAppointmentArgs = {
+  appointmentId: Scalars['Int']['input'];
+  idempotencyKey: Scalars['String']['input'];
+};
+
+
+export type MutationDeclineOfferArgs = {
+  offerId: Scalars['Int']['input'];
+};
+
+
+export type MutationHoldSlotArgs = {
+  input: HoldSlotInput;
+};
+
+
+export type MutationJoinWaitlistArgs = {
+  input: JoinWaitlistInput;
+};
+
+
+export type MutationLeaveWaitlistArgs = {
+  entryId: Scalars['Int']['input'];
 };
 
 
@@ -73,8 +147,22 @@ export type MutationLoginArgs = {
 };
 
 
+export type MutationMarkSickLeaveArgs = {
+  clinicId: Scalars['Int']['input'];
+  date: Scalars['String']['input'];
+  doctorId: Scalars['Int']['input'];
+};
+
+
 export type MutationRegisterArgs = {
   input: RegisterInput;
+};
+
+
+export type MutationRescheduleAppointmentArgs = {
+  appointmentId: Scalars['Int']['input'];
+  expectedVersion: Scalars['Int']['input'];
+  newStartsAt: Scalars['DateTime']['input'];
 };
 
 export type Patient = {
@@ -125,4 +213,10 @@ export type Service = {
   id: Scalars['Int']['output'];
   name: Scalars['String']['output'];
   usesUltrasoundRoom: Scalars['Boolean']['output'];
+};
+
+export type SickLeavePayload = {
+  __typename?: 'SickLeavePayload';
+  applied: Scalars['Boolean']['output'];
+  cancelledAppointmentIds: Array<Scalars['Int']['output']>;
 };

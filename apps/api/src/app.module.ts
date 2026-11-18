@@ -8,6 +8,7 @@ import { HealthController } from './health.controller.js';
 import { HealthResolver } from './health.resolver.js';
 import { AuthResolver } from './auth/auth.resolver.js';
 import { AppointmentResolver } from './appointments/appointment.resolver.js';
+import { BookingResolver } from './booking/booking.resolver.js';
 import { buildGraphqlOptions } from './graphql/graphql.options.js';
 
 @Module({
@@ -21,6 +22,6 @@ import { buildGraphqlOptions } from './graphql/graphql.options.js';
     }),
   ],
   controllers: [HealthController],
-  providers: [HealthResolver, AuthResolver, AppointmentResolver],
+  providers: [HealthResolver, AuthResolver, AppointmentResolver, BookingResolver],
 })
 export class AppModule {}

@@ -1,6 +1,6 @@
 /** Per-request GraphQL context: actor from the session cookie, fresh loaders, Clock and DB handles. */
 import type { Pool } from 'pg';
-import type { Clock } from '@clinic/shared';
+import { BookingService, WaitlistService, type Clock } from '@clinic/shared';
 import type { RequestActor } from '../auth/actor.js';
 import { readSessionToken, SessionStore } from '../auth/sessions.js';
 import { createLoaders, type Loaders } from './loaders.js';
@@ -18,6 +18,8 @@ export interface RequestContext {
   loaders: Loaders;
   pool: Pool;
   clock: Clock;
+  booking: BookingService;
+  waitlist: WaitlistService;
   sessions: SessionStore;
   res: ResponseLike | undefined;
   sessionToken: string | undefined;
@@ -41,6 +43,8 @@ export async function buildContext(
     loaders: createLoaders(deps.pool),
     pool: deps.pool,
     clock: deps.clock,
+    booking: new BookingService(deps.pool, deps.clock),
+    waitlist: new WaitlistService(deps.pool, deps.clock),
     sessions,
     res,
     sessionToken,
