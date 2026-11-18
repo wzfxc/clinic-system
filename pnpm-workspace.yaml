@@ -4,6 +4,7 @@ packages:
 
 allowBuilds:
   '@apollo/protobufjs': false
+  '@parcel/watcher': false
   '@swc/core': true
   esbuild: true
   msgpackr-extract: false
