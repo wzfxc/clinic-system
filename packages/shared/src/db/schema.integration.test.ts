@@ -361,6 +361,7 @@ describe('exclusion constraints and limit trigger (real Postgres)', () => {
       'appointments_b_patient_limit',
       'appointments_c_status_transition',
       'appointments_history',
+      'appointments_reminders',
     ]);
   });
 });

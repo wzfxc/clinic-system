@@ -29,5 +29,15 @@
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
     "graphql": "^16.15.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
   }
 }

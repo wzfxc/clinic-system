@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CLOCK, SystemClock } from '@clinic/shared';
-import { QueueService } from './queue.service.js';
+import { WorkerService } from './worker.service.js';
 
 @Module({
-  providers: [QueueService, { provide: CLOCK, useClass: SystemClock }],
+  providers: [WorkerService, { provide: CLOCK, useClass: SystemClock }],
 })
 export class WorkerModule {}

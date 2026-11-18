@@ -366,3 +366,35 @@ export const emailOutbox = pgTable(
     index('email_outbox_due_idx').on(t.nextAttemptAt).where(sql`${t.status} = 'pending'`),
   ],
 );
+
+
+export const reminderKind = pgEnum('reminder_kind', ['h24', 'h2']);
+
+/**
+ * Reminder decisions (docs/analysis/04, section 2), kept in step with `appointments` by the
+ * `appointments_reminders` trigger, so they change in the same transaction as a booking, move or
+ * cancel. `UNIQUE (appointment_id, kind, time_version)` makes "send" exactly-once per visit time;
+ * `due_at` is an absolute instant (`start_snapshot` minus 24h / 2h), so DST does not shift it.
+ */
+export const reminders = pgTable(
+  'reminders',
+  {
+    id: id(),
+    appointmentId: fk('appointment_id').notNull().references(() => appointments.id),
+    kind: reminderKind('kind').notNull(),
+    timeVersion: integer('time_version').notNull(),
+    startSnapshot: tstz('start_snapshot').notNull(),
+    dueAt: tstz('due_at').notNull(),
+    cancelledAt: tstz('cancelled_at'),
+    enqueuedAt: tstz('enqueued_at'),
+    skippedAt: tstz('skipped_at'),
+    createdAt: tstz('created_at').notNull(),
+  },
+  (t) => [
+    unique('reminders_appointment_kind_version_uq').on(t.appointmentId, t.kind, t.timeVersion),
+    index('reminders_due_idx')
+      .on(t.dueAt)
+      .where(sql`${t.enqueuedAt} IS NULL AND ${t.cancelledAt} IS NULL AND ${t.skippedAt} IS NULL`),
+    index('reminders_appointment_idx').on(t.appointmentId),
+  ],
+);
