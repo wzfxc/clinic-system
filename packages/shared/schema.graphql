@@ -55,6 +55,12 @@ type SickLeavePayload {
   cancelledAppointmentIds: [Int!]!
 }
 
+type SlotsChanged {
+  clinicId: Int!
+  doctorId: Int!
+  startsAt: DateTime!
+}
+
 type Query {
   """The signed-in account."""
   me: Me!
@@ -119,4 +125,11 @@ input JoinWaitlistInput {
   serviceId: Int!
   dateFrom: String!
   dateTo: String!
+}
+
+type Subscription {
+  """
+  Free-slot changes of a clinic. Carries no patient or appointment ids; refetch the slot grid.
+  """
+  slotsChanged(clinicId: Int!): SlotsChanged!
 }

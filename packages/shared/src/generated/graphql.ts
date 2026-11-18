@@ -220,3 +220,21 @@ export type SickLeavePayload = {
   applied: Scalars['Boolean']['output'];
   cancelledAppointmentIds: Array<Scalars['Int']['output']>;
 };
+
+export type SlotsChanged = {
+  __typename?: 'SlotsChanged';
+  clinicId: Scalars['Int']['output'];
+  doctorId: Scalars['Int']['output'];
+  startsAt: Scalars['DateTime']['output'];
+};
+
+export type Subscription = {
+  __typename?: 'Subscription';
+  /** Free-slot changes of a clinic. Carries no patient or appointment ids; refetch the slot grid. */
+  slotsChanged: SlotsChanged;
+};
+
+
+export type SubscriptionSlotsChangedArgs = {
+  clinicId: Scalars['Int']['input'];
+};

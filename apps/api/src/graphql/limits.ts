@@ -48,14 +48,19 @@ export function queryDepth(document: DocumentNode): number {
   return max;
 }
 
+/** Limits that need only the document; also applied to operations received over WebSocket. */
+export function assertStructuralLimits(document: DocumentNode): void {
+  if (queryDepth(document) > MAX_QUERY_DEPTH) {
+    throw new GraphQLError('Query is too deep', { extensions: { code: ERROR_CODES.QUERY_TOO_DEEP } });
+  }
+}
+
 export function createLimitsPlugin(): ApolloServerPlugin {
   return {
     async requestDidStart() {
       return {
         async didResolveOperation({ document, schema, request, operationName }) {
-          if (queryDepth(document) > MAX_QUERY_DEPTH) {
-            throw new GraphQLError('Query is too deep', { extensions: { code: ERROR_CODES.QUERY_TOO_DEEP } });
-          }
+          assertStructuralLimits(document);
           const complexity = getComplexity({
             schema,
             query: document,
