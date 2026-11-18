@@ -90,3 +90,11 @@
 ## Лишається відкритим
 
 Розбіжностей між блоками 01-06, відомих на цей момент, немає. Назви кодів помилок у `03` і `05` (`BOOKING_LIMIT_REACHED`, `WAITLIST_OFFER_EXPIRED` тощо) слід звести до реєстру блоку 6 під час реалізації.
+
+## Stage 6 decisions (waitlist)
+- Cascade reuses the `doctor:<id>` advisory lock (and `room:<clinic>` for ultrasound); lock order: doctor, room, then entry/offer/appointment rows.
+- DB constraints (limits, overlap, once-per-day) are enforced and skipped via SAVEPOINT per candidate; the in-transaction re-check covers only what SQL cannot (service fits gap, 2h15m lead, 60-day window, online block).
+- After expiry/decline the cascade continues over the held row's interval (service + buffer), not the original freed interval.
+- Offers cancel with reasons `offer_expired`/`offer_declined`, which never count as strikes.
+- Expiry is driven by the Postgres sweeper only; Redis loss costs one sweep interval.
+- Sick leave creates/raises entries to priority 1 (day+1..day+14, capped at 60-day window).
