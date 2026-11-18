@@ -4,7 +4,8 @@ import { ERROR_CODES } from '@clinic/shared';
 import type { RequestContext } from '../graphql/context.js';
 import { graphQLError, requireAuthActor } from '../graphql/guards.js';
 import { MeModel } from '../graphql/models.js';
-import { hashPassword, verifyPassword } from './password.js';
+import { LoginThrottle } from './login-throttle.js';
+import { getDummyHash, hashPassword, verifyPassword } from './password.js';
 import { SESSION_COOKIE } from './sessions.js';
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -109,13 +110,22 @@ export class AuthResolver {
     @Context() ctx: RequestContext,
   ): Promise<MeModel> {
     const normalized = email.trim().toLowerCase();
+    const throttle = new LoginThrottle(ctx.pool, ctx.clock);
+    if (await throttle.isLocked(normalized)) {
+      throw graphQLError(ERROR_CODES.RATE_LIMITED, 'too many failed attempts, try again later');
+    }
     const { rows } = await ctx.pool.query<{ id: number; role: string; password_hash: string }>(
       `SELECT id::int AS id, role, password_hash FROM users WHERE email = $1`,
       [normalized],
     );
     const user = rows[0];
-    const ok = user !== undefined && (await verifyPassword(password, user.password_hash));
-    if (!user || !ok) throw graphQLError(ERROR_CODES.INVALID_CREDENTIALS, 'invalid email or password');
+    // scrypt always runs (dummy hash for an unknown email), so response time does not reveal which emails exist.
+    const passwordOk = await verifyPassword(password, user?.password_hash ?? (await getDummyHash()));
+    if (!user || !passwordOk) {
+      await throttle.recordFailure(normalized);
+      throw graphQLError(ERROR_CODES.INVALID_CREDENTIALS, 'invalid email or password');
+    }
+    await throttle.clear(normalized);
     const token = await ctx.sessions.create(ctx.pool, user.id);
     writeSessionCookie(ctx, token);
     return { userId: user.id, role: user.role };

@@ -109,6 +109,14 @@ export const sessions = pgTable(
   (t) => [index('sessions_user_idx').on(t.userId)],
 );
 
+/** Failed-login counter per normalized email (exists whether or not the account does), for throttling. */
+export const loginAttempts = pgTable('login_attempts', {
+  email: text('email').primaryKey(),
+  failures: integer('failures').notNull(),
+  windowStartedAt: tstz('window_started_at').notNull(),
+  lockedUntil: tstz('locked_until'),
+});
+
 export const clinics = pgTable(
   'clinics',
   {

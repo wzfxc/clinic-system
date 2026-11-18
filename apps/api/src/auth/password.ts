@@ -23,3 +23,11 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const actual = await deriveKey(password, Buffer.from(saltPart, 'base64'));
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
+
+let dummyHash: Promise<string> | undefined;
+
+/** A real scrypt hash of a throw-away password, so an unknown account costs the same as a wrong password. */
+export function getDummyHash(): Promise<string> {
+  dummyHash ??= hashPassword('dummy-password-for-timing');
+  return dummyHash;
+}
