@@ -12,3 +12,10 @@ Stages 1-5 done (see git log). Remaining:
 - [~] 9 seed/report: Sonnet finishing (seed acfa9c11 done ~147k rows).
 - [~] 10 web: 10a scaffold (Sonnet) in progress, then Haiku UI.
 Known gaps to put in README: login throttle is per-account only (no per-IP counter, lockout can be used for account-lockout DoS, check-then-record not atomic); no myAppointmentChanged/myOfferChanged/clinicBoardChanged/doctorDayChanged subscriptions; complexity limit not applied over WebSocket; waitlist gaps (see stage 6).
+
+## Status update (16:40)
+- [x] CI fixed (707f72a, ac9ab28): codegen builds shared first, web dep @graphql-typed-document-node/core, allowBuilds for @parcel/watcher.
+- [x] 9 seed/report done (cdd1f12).
+- [x] 11 README written (honest status, gaps).
+- [~] 10 web: scaffold only (i18n, urql, slotsChanged hook, format helpers). NOT done: UI screens, forms, Playwright e2e. Listed in README 'What is not done'.
+- Not verified locally: docker compose up / compose-smoke (no Docker access).
