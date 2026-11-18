@@ -48,7 +48,7 @@ async function asNotFoundWhenForeign<T>(run: () => Promise<T>): Promise<T> {
 
 @Resolver()
 export class BookingResolver {
-  @Mutation(() => AppointmentModel, { description: 'Places a 15-minute checkout hold for the signed-in patient.' })
+  @Mutation(() => AppointmentModel, { description: 'Places a 10-minute checkout hold for the signed-in patient.' })
   async holdSlot(
     @Context() ctx: RequestContext,
     @Args('input', { type: () => HoldSlotInput }) input: HoldSlotInput,

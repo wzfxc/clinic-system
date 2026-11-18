@@ -148,6 +148,5 @@ Be aware of these before using or grading the project:
 6. Subscriptions: only `slotsChanged` exists; `myAppointmentChanged`, `myOfferChanged`, `clinicBoardChanged` and
    `doctorDayChanged` are not implemented; the query complexity limit is not applied over WebSocket.
 7. The GraphQL API has no mutation for a receptionist to create a booking on behalf of a patient (only the patient
-   hold/confirm flow, cancel, reschedule, status changes, sick leave and the waitlist mutations). The description of the
-   `hold` mutation in the schema says "15-minute"; the real TTL is `HOLD_TTL_MINUTES = 10` (`packages/shared/src/rules.ts`).
+   hold/confirm flow, cancel, reschedule, status changes, sick leave and the waitlist mutations).
 8. Reminders "in the app" (as opposed to by mail) have no UI.

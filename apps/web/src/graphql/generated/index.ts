@@ -115,7 +115,7 @@ export type Mutation = {
   changeAppointmentStatus: Appointment;
   confirmAppointment: Appointment;
   declineOffer: Scalars['Boolean']['output'];
-  /** Places a 15-minute checkout hold for the signed-in patient. */
+  /** Places a 10-minute checkout hold for the signed-in patient. */
   holdSlot: Appointment;
   /** Joins the waitlist; returns the entry id. */
   joinWaitlist: Scalars['Int']['output'];

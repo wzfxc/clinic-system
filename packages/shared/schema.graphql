@@ -170,7 +170,7 @@ type Mutation {
   login(email: String!, password: String!): Me!
   logout: Boolean!
 
-  """Places a 15-minute checkout hold for the signed-in patient."""
+  """Places a 10-minute checkout hold for the signed-in patient."""
   holdSlot(input: HoldSlotInput!): Appointment!
   confirmAppointment(appointmentId: Int!, idempotencyKey: String!): Appointment!
 
