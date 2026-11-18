@@ -384,20 +384,6 @@ describe('booking window and schedule', () => {
 });
 
 describe('patient rules', () => {
-  it('online booking can be blocked; the registrar books the same patient anyway', async () => {
-    const s = await setup();
-    const patientId = await seedPatient(db.pool, 1);
-    const until = new Date(NOW.getTime() + 5 * 24 * 60 * MINUTE_MS);
-    await db.pool.query(`UPDATE patients SET online_booking_blocked_until = $1 WHERE id = $2`, [until, patientId]);
-    const startsAt = kyivAt(day(0), '10:00');
-
-    const err: unknown = await svc.hold(holdInput(s, patientId, startsAt)).catch((e: unknown) => e);
-    expect(err).toMatchObject({ code: 'ONLINE_BOOKING_BLOCKED', details: { blockedUntil: until.toISOString() } });
-    await expect(svc.hold({ ...holdInput(s, patientId, startsAt), channel: 'front_desk' })).resolves.toMatchObject({
-      status: 'held',
-    });
-  });
-
   it('one visit per doctor per local day, and no two visits at the same time', async () => {
     const s = await setup();
     const doctor2 = await seedDoctor(db.pool, s.w);

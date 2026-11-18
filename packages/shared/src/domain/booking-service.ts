@@ -6,8 +6,12 @@
 import type { Pool } from 'pg';
 import type { Clock } from '../clock.js';
 import { translateDbError, type Appointment } from './appointment.js';
+import { cancelAppointment, type CancelInput, type CancelResult } from './cancel.js';
 import { confirmAppointment, type ConfirmInput } from './confirm.js';
 import { holdAppointment, type HoldInput } from './hold.js';
+import { DEFAULT_HOOKS, type DomainHooks } from './hooks.js';
+import { rescheduleAppointment, type RescheduleInput, type RescheduleResult } from './reschedule.js';
+import { changeAppointmentStatus, type ChangeStatusInput } from './status.js';
 import type { FreeSlot } from './slots.js';
 import { loadFreeSlots, type FreeSlotsRequest } from './slots-repo.js';
 import { BookingError, pgErrorOf, runInTransaction, type Tx } from './tx.js';
@@ -16,6 +20,7 @@ export class BookingService {
   constructor(
     private readonly pool: Pool,
     private readonly clock: Clock,
+    private readonly hooks: DomainHooks = DEFAULT_HOOKS,
   ) {}
 
   freeSlots(request: FreeSlotsRequest): Promise<FreeSlot[]> {
@@ -31,6 +36,18 @@ export class BookingService {
     const outcome = await this.run((tx, clock) => confirmAppointment(tx, clock, input));
     if (!outcome.ok) throw outcome.error;
     return outcome.appointment;
+  }
+
+  cancel(input: CancelInput): Promise<CancelResult> {
+    return this.run((tx, clock) => cancelAppointment(tx, clock, input, this.hooks));
+  }
+
+  reschedule(input: RescheduleInput): Promise<RescheduleResult> {
+    return this.run((tx, clock) => rescheduleAppointment(tx, clock, input, this.hooks));
+  }
+
+  changeStatus(input: ChangeStatusInput): Promise<Appointment> {
+    return this.run((tx, clock) => changeAppointmentStatus(tx, clock, input));
   }
 
   private async run<T>(fn: (tx: Tx, clock: Clock) => Promise<T>): Promise<T> {

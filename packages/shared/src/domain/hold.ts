@@ -15,6 +15,7 @@ import {
   type AppointmentRow,
   type BookingChannel,
 } from './appointment.js';
+import { onlineBookingBlockedUntil } from './online-block.js';
 import { isGridStart, isWithinBookingWindow } from './slots.js';
 import { loadClinicService, loadSchedules, type ClinicService } from './slots-repo.js';
 import { localDateOf, MINUTE_MS } from './time.js';
@@ -28,6 +29,21 @@ export interface HoldInput {
   startsAt: Date;
   channel: BookingChannel;
   actor?: Actor;
+}
+
+/**
+ * Takes the advisory lock of every doctor involved (the target and those of the patient's own
+ * checkout holds) in id order, before any appointment row is locked. Sick leave takes the same lock
+ * and then the day's rows, so locking rows first (as releasing own holds does) could deadlock with it.
+ */
+async function lockDoctorsOfOwnHolds(tx: Tx, patientId: number, targetDoctorId: number): Promise<void> {
+  const { rows } = await tx.query<{ doctor_id: string }>(
+    `SELECT DISTINCT doctor_id FROM appointments
+      WHERE patient_id = $1 AND status = 'held' AND hold_kind = 'checkout'`,
+    [patientId],
+  );
+  const ids = new Set([targetDoctorId, ...rows.map((r) => Number(r.doctor_id))]);
+  for (const id of [...ids].sort((a, b) => a - b)) await advisoryLock(tx, `doctor:${id}`);
 }
 
 /** Frees the patient's own checkout holds, live or expired, without regard to overlap (D2). */
@@ -83,7 +99,7 @@ export async function reapExpiredCheckoutHolds(tx: Tx, clock: Clock, scope: Reap
 }
 
 /** Transaction-scoped advisory lock; the key is hashed so ids of different kinds never collide. */
-async function advisoryLock(tx: Tx, key: string): Promise<void> {
+export async function advisoryLock(tx: Tx, key: string): Promise<void> {
   await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [key]);
 }
 
@@ -97,11 +113,22 @@ async function assertDoctorOffers(tx: Tx, input: HoldInput): Promise<void> {
   if (rowCount === 0) throw new BookingError('SERVICE_NOT_PROVIDED');
 }
 
-async function assertSlotAllowed(tx: Tx, now: Date, input: HoldInput, service: ClinicService): Promise<void> {
-  if (!isWithinBookingWindow(now, service.timezone, input.startsAt)) throw new BookingError('SLOT_OUT_OF_WINDOW');
-  const date = localDateOf(input.startsAt, service.timezone);
-  const [schedule] = await loadSchedules(tx, input.clinicId, [input.doctorId], date, date);
-  if (!schedule || !isGridStart(schedule, service.timezone, input.startsAt, service.durationMinutes)) {
+export interface SlotTarget {
+  clinicId: number;
+  doctorId: number;
+  startsAt: Date;
+}
+
+/**
+ * Window, grid and working-hours check. Must run after the doctor advisory lock is taken: a sick-leave
+ * transaction holds the same lock while it closes the day, so a schedule read taken after the lock
+ * always sees the committed exception.
+ */
+export async function assertSlotAllowed(tx: Tx, now: Date, target: SlotTarget, service: ClinicService): Promise<void> {
+  if (!isWithinBookingWindow(now, service.timezone, target.startsAt)) throw new BookingError('SLOT_OUT_OF_WINDOW');
+  const date = localDateOf(target.startsAt, service.timezone);
+  const [schedule] = await loadSchedules(tx, target.clinicId, [target.doctorId], date, date);
+  if (!schedule || !isGridStart(schedule, service.timezone, target.startsAt, service.durationMinutes)) {
     throw new BookingError('OUTSIDE_WORKING_HOURS');
   }
 }
@@ -112,23 +139,27 @@ export async function holdAppointment(tx: Tx, clock: Clock, input: HoldInput): P
   await applyActor(tx, input.actor);
 
   const patient = await lockPatient(tx, input.patientId);
+  await lockDoctorsOfOwnHolds(tx, input.patientId, input.doctorId);
   await releaseOwnCheckoutHolds(tx, clock, input.patientId);
 
-  if (input.channel === 'online' && patient.onlineBookingBlockedUntil !== null && patient.onlineBookingBlockedUntil > now) {
-    throw new BookingError('ONLINE_BOOKING_BLOCKED', 'online booking is blocked', {
-      blockedUntil: patient.onlineBookingBlockedUntil.toISOString(),
-    });
+  if (input.channel === 'online') {
+    const blockedUntil = await onlineBookingBlockedUntil(tx, now, patient.id);
+    if (blockedUntil !== null) {
+      throw new BookingError('ONLINE_BOOKING_BLOCKED', 'online booking is blocked', {
+        blockedUntil: blockedUntil.toISOString(),
+      });
+    }
   }
   const service = await loadClinicService(tx, input.clinicId, input.serviceId);
   if (service === null) throw new BookingError('SERVICE_NOT_PROVIDED');
   await assertDoctorOffers(tx, input);
-  await assertSlotAllowed(tx, now, input, service);
 
   const endsAt = new Date(input.startsAt.getTime() + service.durationMinutes * MINUTE_MS);
   const blockedUntil = new Date(endsAt.getTime() + PREP_BUFFER_MINUTES * MINUTE_MS);
 
   await advisoryLock(tx, `doctor:${input.doctorId}`);
   if (service.usesUltrasoundRoom) await advisoryLock(tx, `room:${input.clinicId}`);
+  await assertSlotAllowed(tx, now, input, service);
   await reapExpiredCheckoutHolds(tx, clock, {
     doctorId: input.doctorId,
     clinicId: input.clinicId,

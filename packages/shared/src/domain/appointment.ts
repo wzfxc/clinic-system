@@ -30,10 +30,12 @@ export interface Appointment {
   currency: string;
   holdKind: HoldKind | null;
   holdExpiresAt: Date | null;
+  /** Optimistic-concurrency token for the time of the appointment; bumped by every reschedule. */
+  timeVersion: number;
 }
 
 export const APPOINTMENT_COLUMNS = `id, clinic_id, doctor_id, patient_id, service_id, status, starts_at, ends_at,
-  blocked_until, local_date::text AS local_date, uses_ultrasound_room, price_minor, currency, hold_kind, hold_expires_at`;
+  blocked_until, local_date::text AS local_date, uses_ultrasound_room, price_minor, currency, hold_kind, hold_expires_at, time_version`;
 
 export interface AppointmentRow {
   id: string;
@@ -51,6 +53,7 @@ export interface AppointmentRow {
   currency: string;
   hold_kind: HoldKind | null;
   hold_expires_at: Date | null;
+  time_version: number;
 }
 
 export function toAppointment(row: AppointmentRow): Appointment {
@@ -70,6 +73,7 @@ export function toAppointment(row: AppointmentRow): Appointment {
     currency: row.currency,
     holdKind: row.hold_kind,
     holdExpiresAt: row.hold_expires_at,
+    timeVersion: row.time_version,
   };
 }
 
@@ -83,18 +87,44 @@ export async function applyActor(tx: Tx, actor: Actor | undefined): Promise<void
 
 export interface LockedPatient {
   id: number;
-  onlineBookingBlockedUntil: Date | null;
+}
+
+/** Reads one appointment; `forUpdate` locks the row (callers lock the patient first). Throws NOT_FOUND. */
+export async function loadAppointment(tx: Tx, id: number, forUpdate = false): Promise<Appointment> {
+  const { rows } = await tx.query<AppointmentRow>(
+    `SELECT ${APPOINTMENT_COLUMNS} FROM appointments WHERE id = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    [id],
+  );
+  const row = rows[0];
+  if (!row) throw new BookingError('NOT_FOUND', `appointment ${id} not found`);
+  return toAppointment(row);
+}
+
+/**
+ * Lock order for every write on an existing appointment: patient row first, then the appointment
+ * row. The unlocked read only learns whose lock to take and what the actor may do; the decision is
+ * made on the locked copy returned here.
+ */
+export async function lockAppointment(
+  tx: Tx,
+  appointmentId: number,
+  authorize: (appointment: Appointment) => void,
+): Promise<Appointment> {
+  const preview = await loadAppointment(tx, appointmentId);
+  authorize(preview);
+  await lockPatient(tx, preview.patientId);
+  return loadAppointment(tx, appointmentId, true);
 }
 
 /** First lock of every booking transaction (lock order: patient, doctor, ultrasound room). */
 export async function lockPatient(tx: Tx, patientId: number): Promise<LockedPatient> {
-  const { rows } = await tx.query<{ id: string; online_booking_blocked_until: Date | null }>(
-    `SELECT id, online_booking_blocked_until FROM patients WHERE id = $1 FOR UPDATE`,
+  const { rows } = await tx.query<{ id: string }>(
+    `SELECT id FROM patients WHERE id = $1 FOR UPDATE`,
     [patientId],
   );
   const row = rows[0];
   if (!row) throw new BookingError('NOT_FOUND', `patient ${patientId} not found`);
-  return { id: numberOf(row.id), onlineBookingBlockedUntil: row.online_booking_blocked_until };
+  return { id: numberOf(row.id) };
 }
 
 const CONSTRAINT_TO_CODE: Readonly<Record<string, BookingError['code']>> = {
