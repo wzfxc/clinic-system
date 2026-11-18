@@ -3,13 +3,19 @@
  * Patients act on their own objects only; anything of someone else's is NOT_FOUND, the same as a missing id.
  * Domain functions enforce the rules again, so this layer only decides who may call and what they may name.
  */
-import { Args, Context, Int, Mutation, Resolver } from '@nestjs/graphql';
+import { Args, Context, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { ERROR_CODES, type Appointment, type AuthActor } from '@clinic/shared';
 import type { RequestContext } from '../graphql/context.js';
 import { isBookingError } from '../graphql/errors.js';
 import { graphQLError, requireAuthActor, requirePatient } from '../graphql/guards.js';
 import { AppointmentModel } from '../graphql/models.js';
-import { HoldSlotInput, JoinWaitlistInput, SickLeaveResultModel } from './booking.models.js';
+import {
+  HoldSlotInput,
+  JoinWaitlistInput,
+  SickLeaveResultModel,
+  WaitlistEntryModel,
+  WaitlistOfferModel,
+} from './booking.models.js';
 
 const STAFF_STATUSES = ['checked_in', 'no_show', 'completed'] as const;
 type StaffStatus = (typeof STAFF_STATUSES)[number];
@@ -48,11 +54,60 @@ async function asNotFoundWhenForeign<T>(run: () => Promise<T>): Promise<T> {
 
 @Resolver()
 export class BookingResolver {
+  @Query(() => [WaitlistOfferModel], { description: 'Pending and recent waitlist offers for the signed-in patient.' })
+  async myWaitlistOffers(@Context() ctx: RequestContext): Promise<WaitlistOfferModel[]> {
+    const actor = requirePatient(ctx);
+    const { rows } = await ctx.pool.query<WaitlistOfferModel>(
+      `SELECT o.id::int AS id, o.entry_id::int AS "entryId", o.appointment_id::int AS "appointmentId",
+              a.clinic_id::int AS "clinicId", a.doctor_id::int AS "doctorId", a.service_id::int AS "serviceId",
+              a.starts_at AS "startsAt", a.ends_at AS "endsAt", o.expires_at AS "expiresAt", o.status::text AS status
+         FROM waitlist_offers o
+         JOIN waitlist_entries e ON e.id = o.entry_id
+         JOIN appointments a ON a.id = o.appointment_id
+        WHERE e.patient_id = $1
+        ORDER BY o.id DESC LIMIT 20`,
+      [actor.patientId],
+    );
+    return rows;
+  }
+
+  @Query(() => [WaitlistEntryModel], { description: 'Active waitlist entries for the signed-in patient.' })
+  async myWaitlistEntries(@Context() ctx: RequestContext): Promise<WaitlistEntryModel[]> {
+    const actor = requirePatient(ctx);
+    const { rows } = await ctx.pool.query<WaitlistEntryModel>(
+      `SELECT id::int AS id, clinic_id::int AS "clinicId", doctor_id::int AS "doctorId",
+              service_id::int AS "serviceId", date_from::text AS "dateFrom", date_to::text AS "dateTo",
+              priority::int AS priority, status::text AS status
+         FROM waitlist_entries
+        WHERE patient_id = $1 AND status IN ('waiting', 'offered')
+        ORDER BY id DESC LIMIT 20`,
+      [actor.patientId],
+    );
+    return rows;
+  }
+
   @Mutation(() => AppointmentModel, { description: 'Places a 10-minute checkout hold for the signed-in patient.' })
   async holdSlot(
     @Context() ctx: RequestContext,
     @Args('input', { type: () => HoldSlotInput }) input: HoldSlotInput,
   ): Promise<Appointment> {
+    if (ctx.actor.role === 'receptionist') {
+      if (input.patientId === undefined) {
+        throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'patientId is required for registrar booking');
+      }
+      if (input.clinicId !== ctx.actor.clinicId) {
+        throw graphQLError(ERROR_CODES.FORBIDDEN, 'not allowed for this clinic');
+      }
+      return ctx.booking.hold({
+        patientId: input.patientId,
+        doctorId: input.doctorId,
+        clinicId: input.clinicId,
+        serviceId: input.serviceId,
+        startsAt: input.startsAt,
+        channel: 'front_desk',
+        actor: ctx.actor,
+      });
+    }
     const actor = requirePatient(ctx);
     return ctx.booking.hold({
       patientId: actor.patientId,
@@ -71,6 +126,22 @@ export class BookingResolver {
     @Args('appointmentId', { type: () => Int }) appointmentId: number,
     @Args('idempotencyKey', { type: () => String }) idempotencyKey: string,
   ): Promise<Appointment> {
+    if (ctx.actor.role === 'receptionist') {
+      const { rows } = await ctx.pool.query<{ patient_id: number; clinic_id: number }>(
+        `SELECT patient_id::int AS patient_id, clinic_id::int AS clinic_id FROM appointments WHERE id = $1`,
+        [appointmentId],
+      );
+      const appt = rows[0];
+      if (!appt || appt.clinic_id !== ctx.actor.clinicId) {
+        throw graphQLError(ERROR_CODES.HOLD_NOT_FOUND, 'hold not found');
+      }
+      return ctx.booking.confirm({
+        appointmentId,
+        patientId: appt.patient_id,
+        idempotencyKey: validateIdempotencyKey(idempotencyKey),
+        actor: ctx.actor,
+      });
+    }
     const actor = requirePatient(ctx);
     return ctx.booking.confirm({
       appointmentId,

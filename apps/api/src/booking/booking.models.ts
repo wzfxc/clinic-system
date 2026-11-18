@@ -14,6 +14,9 @@ export class HoldSlotInput {
 
   @Field(() => Date)
   startsAt!: Date;
+
+  @Field(() => Int, { nullable: true })
+  patientId?: number;
 }
 
 @InputType('JoinWaitlistInput')
@@ -43,4 +46,64 @@ export class SickLeaveResultModel {
 
   @Field(() => [Int])
   cancelledAppointmentIds!: number[];
+}
+
+@ObjectType('WaitlistOffer')
+export class WaitlistOfferModel {
+  @Field(() => Int)
+  id!: number;
+
+  @Field(() => Int)
+  entryId!: number;
+
+  @Field(() => Int)
+  appointmentId!: number;
+
+  @Field(() => Int)
+  clinicId!: number;
+
+  @Field(() => Int)
+  doctorId!: number;
+
+  @Field(() => Int)
+  serviceId!: number;
+
+  @Field(() => Date)
+  startsAt!: Date;
+
+  @Field(() => Date)
+  endsAt!: Date;
+
+  @Field(() => Date)
+  expiresAt!: Date;
+
+  @Field(() => String)
+  status!: string;
+}
+
+@ObjectType('WaitlistEntry')
+export class WaitlistEntryModel {
+  @Field(() => Int)
+  id!: number;
+
+  @Field(() => Int)
+  clinicId!: number;
+
+  @Field(() => Int)
+  doctorId!: number;
+
+  @Field(() => Int)
+  serviceId!: number;
+
+  @Field(() => String)
+  dateFrom!: string;
+
+  @Field(() => String)
+  dateTo!: string;
+
+  @Field(() => Int)
+  priority!: number;
+
+  @Field(() => String)
+  status!: string;
 }

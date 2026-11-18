@@ -22,6 +22,7 @@ export type Appointment = {
   currency: Scalars['String']['output'];
   doctor: Doctor;
   endsAt: Scalars['DateTime']['output'];
+  holdExpiresAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['Int']['output'];
   localDate: Scalars['String']['output'];
   patient: Patient;
@@ -87,6 +88,7 @@ export type DoctorReport = {
 export type HoldSlotInput = {
   clinicId: Scalars['Int']['input'];
   doctorId: Scalars['Int']['input'];
+  patientId?: InputMaybe<Scalars['Int']['input']>;
   serviceId: Scalars['Int']['input'];
   startsAt: Scalars['DateTime']['input'];
 };
@@ -101,6 +103,9 @@ export type JoinWaitlistInput = {
 
 export type Me = {
   __typename?: 'Me';
+  clinicId?: Maybe<Scalars['Int']['output']>;
+  doctorId?: Maybe<Scalars['Int']['output']>;
+  patientId?: Maybe<Scalars['Int']['output']>;
   role: Scalars['String']['output'];
   userId: Scalars['Int']['output'];
 };
@@ -209,6 +214,10 @@ export type Query = {
   appointment?: Maybe<Appointment>;
   /** Appointments visible to the actor, filtered within that scope. */
   appointments: Array<Appointment>;
+  /** All clinics in the network. */
+  clinics: Array<Clinic>;
+  /** Doctors, optionally filtered by clinic. */
+  doctors: Array<Doctor>;
   /** Free slots of a service across the doctors of a city for the next 14 days (clinic-local grid, R2 visibility). */
   findFreeSlots: Array<CityFreeSlot>;
   /** Manager report over the 90 complete days before today (Clock, UTC date). */
@@ -217,6 +226,12 @@ export type Query = {
   me: Me;
   /** The signed-in patient's own appointments. */
   myAppointments: Array<Appointment>;
+  /** Active waitlist entries for the signed-in patient. */
+  myWaitlistEntries: Array<WaitlistEntry>;
+  /** Pending and recent waitlist offers for the signed-in patient. */
+  myWaitlistOffers: Array<WaitlistOffer>;
+  /** All services offered across the network. */
+  services: Array<Service>;
 };
 
 
@@ -231,9 +246,20 @@ export type QueryAppointmentsArgs = {
 };
 
 
+export type QueryDoctorsArgs = {
+  clinicId?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
 export type QueryFindFreeSlotsArgs = {
   city: Scalars['String']['input'];
   serviceId: Scalars['Int']['input'];
+};
+
+
+export type QueryManagerReportArgs = {
+  fromDate?: InputMaybe<Scalars['String']['input']>;
+  toDate?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -315,4 +341,30 @@ export type Subscription = {
 
 export type SubscriptionSlotsChangedArgs = {
   clinicId: Scalars['Int']['input'];
+};
+
+export type WaitlistEntry = {
+  __typename?: 'WaitlistEntry';
+  clinicId: Scalars['Int']['output'];
+  dateFrom: Scalars['String']['output'];
+  dateTo: Scalars['String']['output'];
+  doctorId: Scalars['Int']['output'];
+  id: Scalars['Int']['output'];
+  priority: Scalars['Int']['output'];
+  serviceId: Scalars['Int']['output'];
+  status: Scalars['String']['output'];
+};
+
+export type WaitlistOffer = {
+  __typename?: 'WaitlistOffer';
+  appointmentId: Scalars['Int']['output'];
+  clinicId: Scalars['Int']['output'];
+  doctorId: Scalars['Int']['output'];
+  endsAt: Scalars['DateTime']['output'];
+  entryId: Scalars['Int']['output'];
+  expiresAt: Scalars['DateTime']['output'];
+  id: Scalars['Int']['output'];
+  serviceId: Scalars['Int']['output'];
+  startsAt: Scalars['DateTime']['output'];
+  status: Scalars['String']['output'];
 };

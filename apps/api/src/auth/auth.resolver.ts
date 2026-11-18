@@ -57,7 +57,7 @@ function validateRegistration(input: RegisterInput): { email: string; fullName: 
 
 /** Sets or clears the session cookie. Secure only in production, so local http works. */
 function writeSessionCookie(ctx: RequestContext, token: string | null): void {
-  const secure = process.env['NODE_ENV'] === 'production' ? '; Secure' : '';
+  const secure = process.env['COOKIE_SECURE'] === 'true' ? '; Secure' : '';
   const value = token === null ? `${SESSION_COOKIE}=; Max-Age=0` : `${SESSION_COOKIE}=${token}; Max-Age=${SESSION_MAX_AGE_SECONDS}`;
   ctx.res?.setHeader('Set-Cookie', `${value}; Path=/; HttpOnly; SameSite=Lax${secure}`);
 }
@@ -67,7 +67,13 @@ export class AuthResolver {
   @Query(() => MeModel, { description: 'The signed-in account.' })
   me(@Context() ctx: RequestContext): MeModel {
     const actor = requireAuthActor(ctx);
-    return { userId: actor.userId, role: actor.role };
+    return {
+      userId: actor.userId,
+      role: actor.role,
+      clinicId: actor.role === 'receptionist' ? actor.clinicId : null,
+      patientId: actor.role === 'patient' ? actor.patientId : null,
+      doctorId: actor.role === 'doctor' ? actor.doctorId : null,
+    };
   }
 
   @Mutation(() => MeModel)

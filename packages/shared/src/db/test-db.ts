@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client, Pool, type PoolClient } from 'pg';
+import { hashPassword } from '../seed/password.js';
+import { DEMO_PASSWORD, runSeed } from '../seed/seed.js';
 
 const DEFAULT_URL = 'postgres://clinic:clinic@localhost:5432/clinic';
 const POOL_SIZE = 25;
@@ -82,4 +84,100 @@ export async function createTestDb(): Promise<TestDb> {
       await withAdmin(adminUrl, (admin) => admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`));
     },
   };
+}
+
+export const E2E_PATIENT_EMAILS = [
+  'e2e-p1@clinic.local',
+  'e2e-p2@clinic.local',
+  'e2e-waiter1@clinic.local',
+  'e2e-waiter2@clinic.local',
+] as const;
+
+/** Ensures migrations, seed catalog and clean e2e test patients exist in the target Postgres database. */
+export async function prepareE2ePatients(databaseUrl?: string): Promise<void> {
+  const url = databaseUrl ?? process.env['DATABASE_URL'] ?? DEFAULT_URL;
+  const pool = new Pool({ connectionString: url, max: 2 });
+  try {
+    await migrate(drizzle(pool), { migrationsFolder: path.resolve(import.meta.dirname, '../../drizzle') });
+    const client = await pool.connect();
+    try {
+      await runSeed(client, process.env['SEED_NOW'] ?? new Date().toISOString());
+      const now = new Date();
+      const hash = await hashPassword(DEMO_PASSWORD);
+      await client.query('BEGIN');
+      await client.query(`SELECT set_config('app.clock_now', $1, true)`, [now.toISOString()]);
+      const patientIds: number[] = [];
+      for (const email of E2E_PATIENT_EMAILS) {
+        const u = await client.query<{ id: string }>(
+          `INSERT INTO users (email, role, password_hash, created_at)
+           VALUES ($1, 'patient', $2, $3)
+           ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+           RETURNING id`,
+          [email, hash, now],
+        );
+        const userId = Number(u.rows[0]?.id ?? 0);
+        const p = await client.query<{ id: string }>(
+          `INSERT INTO patients (user_id, full_name, email)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email
+           RETURNING id`,
+          [userId, `E2E ${email}`, email],
+        );
+        patientIds.push(Number(p.rows[0]?.id ?? 0));
+      }
+      await client.query(`DELETE FROM login_attempts WHERE email = ANY($1::text[])`, [[...E2E_PATIENT_EMAILS]]);
+      await client.query(
+        `UPDATE waitlist_offers
+            SET status = 'expired', resolved_at = $2
+          WHERE status = 'pending' AND entry_id IN (
+            SELECT id FROM waitlist_entries WHERE patient_id = ANY($1::bigint[])
+          )`,
+        [patientIds, now],
+      );
+      await client.query(
+        `UPDATE waitlist_entries
+            SET status = 'cancelled'
+          WHERE patient_id = ANY($1::bigint[]) AND status IN ('waiting', 'offered')`,
+        [patientIds],
+      );
+      await client.query(
+        `UPDATE appointments
+            SET status = 'cancelled', cancel_reason = 'hold_expired',
+                hold_kind = NULL, hold_expires_at = NULL, updated_at = $2
+          WHERE patient_id = ANY($1::bigint[]) AND status <> 'cancelled'`,
+        [patientIds, now],
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Fast-forwards a checkout hold past its 10-minute TTL and fires the Postgres change notification. */
+export async function expireCheckoutHoldForTest(appointmentId: number, databaseUrl?: string): Promise<void> {
+  const url = databaseUrl ?? process.env['DATABASE_URL'] ?? DEFAULT_URL;
+  const client = new Client({ connectionString: url });
+  await client.connect();
+  try {
+    const now = new Date();
+    const expiredAt = new Date(now.getTime() - 60_000);
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.clock_now', $1, true)`, [now.toISOString()]);
+    await client.query(
+      `UPDATE appointments SET hold_expires_at = $2, updated_at = $3 WHERE id = $1 AND status = 'held'`,
+      [appointmentId, expiredAt, now],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    await client.end();
+  }
 }

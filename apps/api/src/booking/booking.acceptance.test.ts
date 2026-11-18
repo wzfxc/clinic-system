@@ -135,4 +135,34 @@ describe('booking mutations', () => {
     const res = await gql(holdQuery());
     expect(codeOf(res)).toBe('UNAUTHENTICATED');
   });
+
+  it('cancelling a booking offers the freed slot to the first waitlist candidate who can accept it', async () => {
+    const owner = await register('owner@example.test');
+    const waiter = await register('waiter@example.test');
+
+    const held = (await gql(holdQuery(), owner)).data?.['holdSlot'] as { id: number };
+    await gql(`mutation { confirmAppointment(appointmentId: ${held.id}, idempotencyKey: "k1") { status } }`, owner);
+
+    const joined = await gql(
+      `mutation { joinWaitlist(input: {doctorId: ${doctorId}, clinicId: ${world.clinicId}, serviceId: ${world.serviceId}, dateFrom: "2026-06-02", dateTo: "2026-06-02"}) }`,
+      waiter,
+    );
+    expect(joined.errors).toBeUndefined();
+
+    const cancelled = await gql(`mutation { cancelAppointment(appointmentId: ${held.id}, reason: "plans changed") { status } }`, owner);
+    expect(cancelled.errors).toBeUndefined();
+
+    const offersRes = await gql(`{ myWaitlistOffers { id status appointmentId } }`, waiter);
+    expect(offersRes.errors).toBeUndefined();
+    const offers = offersRes.data?.['myWaitlistOffers'] as { id: number; status: string; appointmentId: number }[];
+    expect(offers).toHaveLength(1);
+    expect(offers[0]?.status).toBe('pending');
+
+    const accepted = await gql(
+      `mutation { acceptOffer(offerId: ${offers[0]?.id}, idempotencyKey: "accept-1") { id status } }`,
+      waiter,
+    );
+    expect(accepted.errors).toBeUndefined();
+    expect(accepted.data?.['acceptOffer']).toEqual({ id: offers[0]?.appointmentId, status: 'booked' });
+  });
 });

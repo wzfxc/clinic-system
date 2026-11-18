@@ -34,6 +34,7 @@ type Appointment {
   priceMinor: Int!
   currency: String!
   timeVersion: Int!
+  holdExpiresAt: DateTime
   doctor: Doctor!
   clinic: Clinic!
   service: Service!
@@ -48,11 +49,38 @@ scalar DateTime
 type Me {
   userId: Int!
   role: String!
+  clinicId: Int
+  patientId: Int
+  doctorId: Int
 }
 
 type SickLeavePayload {
   applied: Boolean!
   cancelledAppointmentIds: [Int!]!
+}
+
+type WaitlistOffer {
+  id: Int!
+  entryId: Int!
+  appointmentId: Int!
+  clinicId: Int!
+  doctorId: Int!
+  serviceId: Int!
+  startsAt: DateTime!
+  endsAt: DateTime!
+  expiresAt: DateTime!
+  status: String!
+}
+
+type WaitlistEntry {
+  id: Int!
+  clinicId: Int!
+  doctorId: Int!
+  serviceId: Int!
+  dateFrom: String!
+  dateTo: String!
+  priority: Int!
+  status: String!
 }
 
 type SlotsChanged {
@@ -148,6 +176,21 @@ type Query {
   appointments(filter: AppointmentFilter, first: Int): [Appointment!]!
   appointment(id: Int!): Appointment
 
+  """Pending and recent waitlist offers for the signed-in patient."""
+  myWaitlistOffers: [WaitlistOffer!]!
+
+  """Active waitlist entries for the signed-in patient."""
+  myWaitlistEntries: [WaitlistEntry!]!
+
+  """All clinics in the network."""
+  clinics: [Clinic!]!
+
+  """All services offered across the network."""
+  services: [Service!]!
+
+  """Doctors, optionally filtered by clinic."""
+  doctors(clinicId: Int): [Doctor!]!
+
   """
   Free slots of a service across the doctors of a city for the next 14 days (clinic-local grid, R2 visibility).
   """
@@ -156,7 +199,7 @@ type Query {
   """
   Manager report over the 90 complete days before today (Clock, UTC date).
   """
-  managerReport: Report!
+  managerReport(fromDate: String, toDate: String): Report!
 }
 
 input AppointmentFilter {
@@ -203,6 +246,7 @@ input HoldSlotInput {
   clinicId: Int!
   serviceId: Int!
   startsAt: DateTime!
+  patientId: Int
 }
 
 input JoinWaitlistInput {

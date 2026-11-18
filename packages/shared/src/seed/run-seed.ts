@@ -10,7 +10,7 @@ async function main(): Promise<void> {
     const client = await pool.connect();
     try {
       const started = performance.now();
-      const report = await runSeed(client);
+      const report = await runSeed(client, process.env['SEED_NOW'] ?? new Date().toISOString());
       const totalMs = Math.round(performance.now() - started);
       if (report.skipped) {
         console.log('seed skipped: clinics already exist');

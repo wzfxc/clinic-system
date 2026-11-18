@@ -84,6 +84,9 @@ export class AppointmentModel {
 
   @Field(() => Int)
   timeVersion!: number;
+
+  @Field(() => Date, { nullable: true })
+  holdExpiresAt?: Date | null;
 }
 
 @ObjectType('Me')
@@ -93,4 +96,13 @@ export class MeModel {
 
   @Field(() => String)
   role!: string;
+
+  @Field(() => Int, { nullable: true })
+  clinicId?: number | null;
+
+  @Field(() => Int, { nullable: true })
+  patientId?: number | null;
+
+  @Field(() => Int, { nullable: true })
+  doctorId?: number | null;
 }
