@@ -71,8 +71,8 @@ export interface DoctorSeed {
   exceptionReasons: Map<string, (typeof EXCEPTION_REASONS)[number]>;
 }
 
-const WEEKDAY_SHIFT: ShiftWindow = { start: '09:00', end: '18:00', breakStart: '13:00', breakEnd: '14:00' };
-const SATURDAY_SHIFT: ShiftWindow = { start: '09:00', end: '14:00' };
+const WEEKDAY_SHIFT: ShiftWindow = { start: '08:00', end: '20:00', breakStart: '13:00', breakEnd: '14:00' };
+const SATURDAY_SHIFT: ShiftWindow = { start: '09:00', end: '15:00' };
 const EXTRA_SUNDAY_SHIFT: ShiftWindow = { start: '10:00', end: '14:00' };
 const DAY_OFF_PER_DOCTOR = 4;
 
@@ -83,7 +83,7 @@ export function buildDoctors(rng: Rng, dates: readonly string[]): DoctorSeed[] {
     const serviceIndexes = SERVICES.map((_, i) => i).filter((i) => i < 2 || i === 4 || rng() < 0.75);
     const templates = new Map<number, ShiftWindow>();
     for (let weekday = 1; weekday <= 5; weekday += 1) templates.set(weekday, WEEKDAY_SHIFT);
-    if (index % 2 === 0) templates.set(6, SATURDAY_SHIFT);
+    templates.set(6, SATURDAY_SHIFT);
 
     const exceptions = new Map<string, ShiftWindow | null>();
     const exceptionReasons = new Map<string, (typeof EXCEPTION_REASONS)[number]>();

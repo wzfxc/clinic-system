@@ -5,9 +5,16 @@ import { CLINICS, type DoctorSeed, SERVICES, type ServiceSeed, type ShiftWindow,
 
 export const BUFFER_MINUTES = 5;
 export const MAX_FUTURE_PER_PATIENT = 3;
-const BOOK_PROBABILITY = 0.85;
-const NO_SHOW_PROBABILITY = 0.12;
+const BOOK_PROBABILITY_PAST = 0.95;
+/** Future days stay partly open so free-slot search has something to find. */
+const BOOK_PROBABILITY_FUTURE = 0.6;
+const NO_SHOW_PROBABILITY = 0.1;
+const LATE_CANCEL_PROBABILITY = 0.25;
+const LATE_CANCEL_MIN_HOURS = 1;
+const EARLY_CANCEL_MAX_DAYS = 10;
+const MS_PER_HOUR = 60 * 60_000;
 const CANCELLED_PER_ACTIVE = 0.8;
+const CANCEL_REASONS = ['patient', 'patient', 'patient', 'clinic'] as const;
 const PATIENT_ATTEMPTS = 6;
 const SLOT_MINUTES = 15;
 const MS_PER_MINUTE = 60_000;
@@ -30,6 +37,8 @@ export interface AppointmentRow {
   currency: string;
   cancelReason: string | null;
   createdAt: Date;
+  /** Cancel instant for cancelled rows (updated_at and the cancel history event); null otherwise. */
+  cancelledAt: Date | null;
 }
 
 /** Database ids of the seeded entities, aligned with the catalog indexes. */
@@ -90,12 +99,24 @@ function createdAtFor(rng: Rng, startMs: number, nowMs: number): Date {
   return new Date(Math.min(startMs - daysBefore * MS_PER_DAY, nowMs - 60 * MS_PER_MINUTE));
 }
 
+/** Cancel instant: a quarter within 24 hours of the start (late), the rest earlier; never before creation or after now. */
+function cancelledAtFor(rng: Rng, startMs: number, createdMs: number, nowMs: number): Date {
+  const latest = Math.min(startMs - MS_PER_MINUTE, nowMs);
+  const earliest = createdMs + MS_PER_MINUTE;
+  const hoursBefore = chance(rng, LATE_CANCEL_PROBABILITY)
+    ? between(rng, LATE_CANCEL_MIN_HOURS, 24)
+    : between(rng, 25, EARLY_CANCEL_MAX_DAYS * 24);
+  const wanted = startMs - hoursBefore * MS_PER_HOUR;
+  return new Date(Math.max(earliest, Math.min(latest, wanted)));
+}
+
 function toRow(state: GenState, placement: Placement, patientIndex: number, status: SeedStatus, cancelReason: string | null): AppointmentRow {
   const { doctor, service, interval, date } = placement;
   const clinic = CLINICS[doctor.clinicIndex];
   const serviceId = state.ids.serviceIds[SERVICES.indexOf(service)];
   if (!clinic || serviceId === undefined) throw new Error('catalog index out of range');
   const endMs = interval.blockedMs - BUFFER_MINUTES * MS_PER_MINUTE;
+  const createdAt = createdAtFor(state.rng, interval.startMs, state.nowMs);
   return {
     clinicId: state.ids.clinicIds[doctor.clinicIndex] ?? 0,
     doctorId: state.ids.doctorIds[doctor.index] ?? 0,
@@ -110,7 +131,9 @@ function toRow(state: GenState, placement: Placement, patientIndex: number, stat
     priceMinor: priceMinor(clinic, service),
     currency: clinic.currency,
     cancelReason,
-    createdAt: createdAtFor(state.rng, interval.startMs, state.nowMs),
+    createdAt,
+    cancelledAt:
+      status === 'cancelled' ? cancelledAtFor(state.rng, interval.startMs, createdAt.getTime(), state.nowMs) : null,
   };
 }
 
@@ -177,6 +200,7 @@ function packShift(state: GenState, doctor: DoctorSeed, date: string, shift: Shi
   const services = servicesOf(doctor);
   let cursor = minutesOf(shift.start);
   let booked = 0;
+  const bookProbability = base.toMillis() >= state.nowMs ? BOOK_PROBABILITY_FUTURE : BOOK_PROBABILITY_PAST;
   while (cursor + SLOT_MINUTES <= endMin) {
     if (breakStart !== null && breakEnd !== null && cursor >= breakStart && cursor < breakEnd) {
       cursor = breakEnd;
@@ -184,7 +208,7 @@ function packShift(state: GenState, doctor: DoctorSeed, date: string, shift: Shi
     }
     const limit = breakStart !== null && cursor < breakStart ? breakStart : endMin;
     const fits = services.filter((s) => s.durationMinutes <= limit - cursor);
-    if (fits.length === 0 || !chance(state.rng, BOOK_PROBABILITY)) {
+    if (fits.length === 0 || !chance(state.rng, bookProbability)) {
       cursor += SLOT_MINUTES;
       continue;
     }
@@ -211,7 +235,7 @@ function addCancelled(state: GenState, doctor: DoctorSeed, date: string, shift: 
     const startMs = base.plus({ minutes: startMin + SLOT_MINUTES * between(state.rng, 0, slots) }).toMillis();
     const interval: Interval = { startMs, blockedMs: startMs + (service.durationMinutes + BUFFER_MINUTES) * MS_PER_MINUTE };
     const patient = between(state.rng, 0, state.ids.patientIds.length - 1);
-    state.rows.push(toRow(state, { doctor, service, date, interval }, patient, 'cancelled', 'patient'));
+    state.rows.push(toRow(state, { doctor, service, date, interval }, patient, 'cancelled', pick(state.rng, CANCEL_REASONS)));
   }
 }
 

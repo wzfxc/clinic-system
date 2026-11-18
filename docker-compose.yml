@@ -49,6 +49,13 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  # One-shot demo data (about 150k appointments, ~20 s); a no-op when clinics already exist.
+  seed:
+    <<: *app
+    command: ["pnpm", "--filter", "@clinic/shared", "exec", "node", "dist/seed/run-seed.js"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
   api:
     <<: *app
     command: ["pnpm", "--filter", "@clinic/api", "start"]
@@ -60,14 +67,14 @@ services:
       retries: 20
       start_period: 15s
     depends_on:
-      migrate: { condition: service_completed_successfully }
+      seed: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
 
   worker:
     <<: *app
     command: ["pnpm", "--filter", "@clinic/worker", "start"]
     depends_on:
-      migrate: { condition: service_completed_successfully }
+      seed: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
 
   web:

@@ -17,7 +17,7 @@ export const PAST_DAYS = 180;
 export const FUTURE_DAYS = 30;
 export const PATIENT_COUNT = 20000;
 export const DEMO_PASSWORD = 'demo-password';
-const INSERT_CHUNK = 5000;
+const INSERT_CHUNK = 10000;
 
 export interface SeedReport {
   skipped: boolean;
@@ -144,46 +144,92 @@ async function insertPatients(client: PoolClient, passwordHash: string, now: Dat
   return rows.map((r) => r.id);
 }
 
-/** Inserts rows in chunks, grouped by creation day so the Clock fed to the history trigger matches the day. */
-async function insertAppointments(client: PoolClient, rows: AppointmentRow[]): Promise<void> {
-  const sorted = [...rows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  let group: AppointmentRow[] = [];
-  let groupDay = '';
-  const flush = async (): Promise<void> => {
-    if (group.length === 0) return;
-    const clockNow = group.reduce((max, r) => (r.createdAt > max ? r.createdAt : max), group[0]?.createdAt ?? new Date(0));
-    await client.query("SELECT set_config('app.clock_now', $1, true)", [clockNow.toISOString()]);
-    for (let start = 0; start < group.length; start += INSERT_CHUNK) {
-      await insertChunk(client, group.slice(start, start + INSERT_CHUNK));
-    }
-    group = [];
-  };
-  for (const row of sorted) {
-    const day = row.createdAt.toISOString().slice(0, 10);
-    if (day !== groupDay) {
-      await flush();
-      groupDay = day;
-    }
-    group.push(row);
+/**
+ * Row triggers that would make the bulk load row-by-row slow. The seed supplies what they derive itself
+ * (local_date from the clinic zone, the 3-future limit by construction, history events in the same statement);
+ * exclusion, unique, check and foreign-key constraints stay enforced throughout.
+ */
+const BULK_LOAD_TRIGGERS = ['appointments_a_local_date', 'appointments_b_patient_limit', 'appointments_history'] as const;
+
+async function setBulkTriggers(client: PoolClient, enabled: boolean): Promise<void> {
+  for (const trigger of BULK_LOAD_TRIGGERS) {
+    await client.query(`ALTER TABLE appointments ${enabled ? 'ENABLE' : 'DISABLE'} TRIGGER ${trigger}`);
   }
-  await flush();
 }
 
+interface DeferredIndex {
+  drop: string;
+  create: string;
+}
+
+/**
+ * Secondary indexes and exclusion / unique constraints are dropped for the load and rebuilt in bulk afterwards
+ * (a gist build is far cheaper than 150k incremental inserts). Re-adding validates every row, so the invariants
+ * still hold when the seed commits; a violation aborts the whole transaction.
+ */
+async function deferredIndexes(client: PoolClient, table: string): Promise<DeferredIndex[]> {
+  const constraints = await client.query<{ conname: string; def: string }>(
+    `SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint
+     WHERE conrelid = $1::regclass AND contype IN ('x', 'u')`,
+    [table],
+  );
+  const indexes = await client.query<{ indexname: string; indexdef: string }>(
+    `SELECT indexname, indexdef FROM pg_indexes
+     WHERE schemaname = 'public' AND tablename = $1 AND indexname NOT LIKE '%\_pkey'
+       AND indexname NOT IN (SELECT conname FROM pg_constraint WHERE conrelid = $1::regclass)`,
+    [table],
+  );
+  return [
+    ...constraints.rows.map((c) => ({
+      drop: `ALTER TABLE ${table} DROP CONSTRAINT "${c.conname}"`,
+      create: `ALTER TABLE ${table} ADD CONSTRAINT "${c.conname}" ${c.def}`,
+    })),
+    ...indexes.rows.map((i) => ({ drop: `DROP INDEX "${i.indexname}"`, create: i.indexdef })),
+  ];
+}
+
+async function insertAppointments(client: PoolClient, rows: AppointmentRow[]): Promise<void> {
+  const deferred = [...(await deferredIndexes(client, 'appointments')), ...(await deferredIndexes(client, 'appointment_events'))];
+  await setBulkTriggers(client, false);
+  for (const index of deferred) await client.query(index.drop);
+  for (let start = 0; start < rows.length; start += INSERT_CHUNK) {
+    await insertChunk(client, rows.slice(start, start + INSERT_CHUNK));
+  }
+  for (const index of deferred) await client.query(index.create);
+  await setBulkTriggers(client, true);
+}
+
+/** One statement per chunk: the rows, their `created` events, and `cancelled` / `no_show` events (late = within 24h, R1). */
 async function insertChunk(client: PoolClient, chunk: AppointmentRow[]): Promise<void> {
   const col = <K extends keyof AppointmentRow>(key: K): AppointmentRow[K][] => chunk.map((r) => r[key]);
   await client.query(
-    `INSERT INTO appointments (clinic_id, doctor_id, patient_id, service_id, status, starts_at, ends_at, blocked_until,
-       local_date, uses_ultrasound_room, price_minor, currency, cancel_reason, created_at, updated_at, time_version)
-     SELECT clinic_id, doctor_id, patient_id, service_id, status::appointment_status, starts_at, ends_at, blocked_until,
-       local_date::date, uses_ultrasound_room, price_minor, currency, cancel_reason, created_at, created_at, 1
-     FROM unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::text[], $6::timestamptz[], $7::timestamptz[],
-       $8::timestamptz[], $9::text[], $10::boolean[], $11::bigint[], $12::text[], $13::text[], $14::timestamptz[])
-       AS t(clinic_id, doctor_id, patient_id, service_id, status, starts_at, ends_at, blocked_until,
-            local_date, uses_ultrasound_room, price_minor, currency, cancel_reason, created_at)`,
+    `WITH ins AS (
+       INSERT INTO appointments (clinic_id, doctor_id, patient_id, service_id, status, starts_at, ends_at, blocked_until,
+         local_date, uses_ultrasound_room, price_minor, currency, cancel_reason, created_at, updated_at, time_version)
+       SELECT clinic_id, doctor_id, patient_id, service_id, status::appointment_status, starts_at, ends_at, blocked_until,
+         local_date::date, uses_ultrasound_room, price_minor, currency, cancel_reason, created_at,
+         coalesce(cancelled_at, created_at), 1
+       FROM unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::text[], $6::timestamptz[], $7::timestamptz[],
+         $8::timestamptz[], $9::text[], $10::boolean[], $11::bigint[], $12::text[], $13::text[], $14::timestamptz[],
+         $15::timestamptz[])
+         AS t(clinic_id, doctor_id, patient_id, service_id, status, starts_at, ends_at, blocked_until,
+              local_date, uses_ultrasound_room, price_minor, currency, cancel_reason, created_at, cancelled_at)
+       RETURNING id, patient_id, status, starts_at, ends_at, created_at, updated_at, cancel_reason
+     ), created AS (
+       INSERT INTO appointment_events (appointment_id, patient_id, kind, to_status, new_starts_at, occurred_at)
+       SELECT id, patient_id, 'created', status, starts_at, created_at FROM ins
+     )
+     INSERT INTO appointment_events (appointment_id, patient_id, kind, from_status, to_status, old_starts_at,
+                                     is_late, is_strike, reason, occurred_at)
+     SELECT id, patient_id, status::text::appointment_event_kind, 'booked', status, starts_at,
+            status = 'cancelled' AND starts_at - updated_at <= interval '24 hours',
+            status = 'no_show' OR (status = 'cancelled' AND starts_at - updated_at <= interval '24 hours'),
+            cancel_reason, CASE WHEN status = 'cancelled' THEN updated_at ELSE ends_at END
+     FROM ins WHERE status IN ('cancelled', 'no_show')`,
     [
       col('clinicId'), col('doctorId'), col('patientId'), col('serviceId'), col('status'),
       col('startsAt'), col('endsAt'), col('blockedUntil'), col('localDate'), col('usesUltrasoundRoom'),
-      col('priceMinor'), col('currency'), col('cancelReason'), col('createdAt'),
+      col('priceMinor'), col('currency'), col('cancelReason'), col('createdAt'), col('cancelledAt'),
     ],
   );
 }
