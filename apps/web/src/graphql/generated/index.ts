@@ -34,6 +34,20 @@ export type Appointment = {
   timeVersion: Scalars['Int']['output'];
 };
 
+export type AppointmentEvent = {
+  __typename?: 'AppointmentEvent';
+  actorRole?: Maybe<Scalars['String']['output']>;
+  appointmentId: Scalars['Int']['output'];
+  fromStatus?: Maybe<Scalars['String']['output']>;
+  id: Scalars['Int']['output'];
+  isLate: Scalars['Boolean']['output'];
+  isStrike: Scalars['Boolean']['output'];
+  kind: Scalars['String']['output'];
+  occurredAt: Scalars['DateTime']['output'];
+  reason?: Maybe<Scalars['String']['output']>;
+  toStatus?: Maybe<Scalars['String']['output']>;
+};
+
 export type AppointmentFilter = {
   clinicId?: InputMaybe<Scalars['Int']['input']>;
   doctorId?: InputMaybe<Scalars['Int']['input']>;
@@ -94,6 +108,17 @@ export type HoldSlotInput = {
   startsAt: Scalars['DateTime']['input'];
 };
 
+export type InAppReminder = {
+  __typename?: 'InAppReminder';
+  appointmentId: Scalars['Int']['output'];
+  clinicId: Scalars['Int']['output'];
+  doctorId: Scalars['Int']['output'];
+  dueAt: Scalars['DateTime']['output'];
+  id: Scalars['Int']['output'];
+  kind: Scalars['String']['output'];
+  startsAt: Scalars['DateTime']['output'];
+};
+
 export type JoinWaitlistInput = {
   clinicId: Scalars['Int']['input'];
   dateFrom: Scalars['String']['input'];
@@ -131,6 +156,10 @@ export type Mutation = {
   markSickLeave: SickLeavePayload;
   register: Me;
   rescheduleAppointment: Appointment;
+  /** Registrar sets a date exception (vacation, sick, extra_day) for a doctor. */
+  upsertScheduleException: Scalars['Boolean']['output'];
+  /** Registrar updates a doctor weekly schedule template in their clinic. */
+  upsertScheduleTemplate: Scalars['Boolean']['output'];
 };
 
 
@@ -202,6 +231,16 @@ export type MutationRescheduleAppointmentArgs = {
   newStartsAt: Scalars['DateTime']['input'];
 };
 
+
+export type MutationUpsertScheduleExceptionArgs = {
+  input: UpsertScheduleExceptionInput;
+};
+
+
+export type MutationUpsertScheduleTemplateArgs = {
+  input: UpsertScheduleTemplateInput;
+};
+
 export type Patient = {
   __typename?: 'Patient';
   email?: Maybe<Scalars['String']['output']>;
@@ -213,6 +252,8 @@ export type Patient = {
 export type Query = {
   __typename?: 'Query';
   appointment?: Maybe<Appointment>;
+  /** Audit history of a visible appointment. */
+  appointmentHistory: Array<AppointmentEvent>;
   /** Appointments visible to the actor, filtered within that scope. */
   appointments: Array<Appointment>;
   /** All clinics in the network. */
@@ -227,6 +268,8 @@ export type Query = {
   me: Me;
   /** The signed-in patient's own appointments. */
   myAppointments: Array<Appointment>;
+  /** In-app 24h and 2h visit reminders for the signed-in patient. */
+  myReminders: Array<InAppReminder>;
   /** Active waitlist entries for the signed-in patient. */
   myWaitlistEntries: Array<WaitlistEntry>;
   /** Pending and recent waitlist offers for the signed-in patient. */
@@ -238,6 +281,11 @@ export type Query = {
 
 export type QueryAppointmentArgs = {
   id: Scalars['Int']['input'];
+};
+
+
+export type QueryAppointmentHistoryArgs = {
+  appointmentId: Scalars['Int']['input'];
 };
 
 
@@ -342,6 +390,26 @@ export type Subscription = {
 
 export type SubscriptionSlotsChangedArgs = {
   clinicId: Scalars['Int']['input'];
+};
+
+export type UpsertScheduleExceptionInput = {
+  clinicId: Scalars['Int']['input'];
+  date: Scalars['String']['input'];
+  doctorId: Scalars['Int']['input'];
+  kind: Scalars['String']['input'];
+  reason: Scalars['String']['input'];
+  workEnd?: InputMaybe<Scalars['String']['input']>;
+  workStart?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpsertScheduleTemplateInput = {
+  breakEnd?: InputMaybe<Scalars['String']['input']>;
+  breakStart?: InputMaybe<Scalars['String']['input']>;
+  clinicId: Scalars['Int']['input'];
+  doctorId: Scalars['Int']['input'];
+  weekday: Scalars['Int']['input'];
+  workEnd: Scalars['String']['input'];
+  workStart: Scalars['String']['input'];
 };
 
 export type WaitlistEntry = {
@@ -513,6 +581,32 @@ export type DeclineOfferMutationVariables = Exact<{
 
 export type DeclineOfferMutation = { __typename?: 'Mutation', declineOffer: boolean };
 
+export type MyRemindersQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MyRemindersQuery = { __typename?: 'Query', myReminders: Array<{ __typename?: 'InAppReminder', id: number, appointmentId: number, kind: string, dueAt: string, startsAt: string, clinicId: number, doctorId: number }> };
+
+export type AppointmentHistoryQueryVariables = Exact<{
+  appointmentId: Scalars['Int']['input'];
+}>;
+
+
+export type AppointmentHistoryQuery = { __typename?: 'Query', appointmentHistory: Array<{ __typename?: 'AppointmentEvent', id: number, appointmentId: number, kind: string, fromStatus?: string | null, toStatus?: string | null, actorRole?: string | null, isLate: boolean, isStrike: boolean, reason?: string | null, occurredAt: string }> };
+
+export type UpsertScheduleTemplateMutationVariables = Exact<{
+  input: UpsertScheduleTemplateInput;
+}>;
+
+
+export type UpsertScheduleTemplateMutation = { __typename?: 'Mutation', upsertScheduleTemplate: boolean };
+
+export type UpsertScheduleExceptionMutationVariables = Exact<{
+  input: UpsertScheduleExceptionInput;
+}>;
+
+
+export type UpsertScheduleExceptionMutation = { __typename?: 'Mutation', upsertScheduleException: boolean };
+
 export type ManagerReportQueryVariables = Exact<{
   fromDate?: InputMaybe<Scalars['String']['input']>;
   toDate?: InputMaybe<Scalars['String']['input']>;
@@ -542,4 +636,8 @@ export const JoinWaitlistDocument = {"kind":"Document","definitions":[{"kind":"O
 export const LeaveWaitlistDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"LeaveWaitlist"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"entryId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"leaveWaitlist"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"entryId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"entryId"}}}]}]}}]} as unknown as DocumentNode<LeaveWaitlistMutation, LeaveWaitlistMutationVariables>;
 export const AcceptOfferDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"AcceptOffer"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"offerId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"idempotencyKey"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"acceptOffer"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"offerId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"offerId"}}},{"kind":"Argument","name":{"kind":"Name","value":"idempotencyKey"},"value":{"kind":"Variable","name":{"kind":"Name","value":"idempotencyKey"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"startsAt"}},{"kind":"Field","name":{"kind":"Name","value":"endsAt"}},{"kind":"Field","name":{"kind":"Name","value":"localDate"}}]}}]}}]} as unknown as DocumentNode<AcceptOfferMutation, AcceptOfferMutationVariables>;
 export const DeclineOfferDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeclineOffer"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"offerId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"declineOffer"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"offerId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"offerId"}}}]}]}}]} as unknown as DocumentNode<DeclineOfferMutation, DeclineOfferMutationVariables>;
+export const MyRemindersDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MyReminders"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"myReminders"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"appointmentId"}},{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"dueAt"}},{"kind":"Field","name":{"kind":"Name","value":"startsAt"}},{"kind":"Field","name":{"kind":"Name","value":"clinicId"}},{"kind":"Field","name":{"kind":"Name","value":"doctorId"}}]}}]}}]} as unknown as DocumentNode<MyRemindersQuery, MyRemindersQueryVariables>;
+export const AppointmentHistoryDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"AppointmentHistory"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"appointmentId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"appointmentHistory"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"appointmentId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"appointmentId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"appointmentId"}},{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"fromStatus"}},{"kind":"Field","name":{"kind":"Name","value":"toStatus"}},{"kind":"Field","name":{"kind":"Name","value":"actorRole"}},{"kind":"Field","name":{"kind":"Name","value":"isLate"}},{"kind":"Field","name":{"kind":"Name","value":"isStrike"}},{"kind":"Field","name":{"kind":"Name","value":"reason"}},{"kind":"Field","name":{"kind":"Name","value":"occurredAt"}}]}}]}}]} as unknown as DocumentNode<AppointmentHistoryQuery, AppointmentHistoryQueryVariables>;
+export const UpsertScheduleTemplateDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpsertScheduleTemplate"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UpsertScheduleTemplateInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"upsertScheduleTemplate"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}]}]}}]} as unknown as DocumentNode<UpsertScheduleTemplateMutation, UpsertScheduleTemplateMutationVariables>;
+export const UpsertScheduleExceptionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpsertScheduleException"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UpsertScheduleExceptionInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"upsertScheduleException"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}]}]}}]} as unknown as DocumentNode<UpsertScheduleExceptionMutation, UpsertScheduleExceptionMutationVariables>;
 export const ManagerReportDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ManagerReport"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"fromDate"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"toDate"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"managerReport"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"fromDate"},"value":{"kind":"Variable","name":{"kind":"Name","value":"fromDate"}}},{"kind":"Argument","name":{"kind":"Name","value":"toDate"},"value":{"kind":"Variable","name":{"kind":"Name","value":"toDate"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"fromDate"}},{"kind":"Field","name":{"kind":"Name","value":"toDate"}},{"kind":"Field","name":{"kind":"Name","value":"totals"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"scheduledMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"bookedMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"loadPercent"}},{"kind":"Field","name":{"kind":"Name","value":"completed"}},{"kind":"Field","name":{"kind":"Name","value":"noShow"}},{"kind":"Field","name":{"kind":"Name","value":"noShowShare"}},{"kind":"Field","name":{"kind":"Name","value":"cancelled"}},{"kind":"Field","name":{"kind":"Name","value":"lateCancelled"}},{"kind":"Field","name":{"kind":"Name","value":"lateCancelShare"}},{"kind":"Field","name":{"kind":"Name","value":"acceptedOffers"}}]}},{"kind":"Field","name":{"kind":"Name","value":"doctors"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"doctorId"}},{"kind":"Field","name":{"kind":"Name","value":"clinicId"}},{"kind":"Field","name":{"kind":"Name","value":"scheduledMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"bookedMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"loadPercent"}},{"kind":"Field","name":{"kind":"Name","value":"completed"}},{"kind":"Field","name":{"kind":"Name","value":"noShow"}},{"kind":"Field","name":{"kind":"Name","value":"noShowShare"}},{"kind":"Field","name":{"kind":"Name","value":"cancelled"}},{"kind":"Field","name":{"kind":"Name","value":"lateCancelled"}},{"kind":"Field","name":{"kind":"Name","value":"lateCancelShare"}},{"kind":"Field","name":{"kind":"Name","value":"acceptedOffers"}}]}},{"kind":"Field","name":{"kind":"Name","value":"revenue"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"serviceId"}},{"kind":"Field","name":{"kind":"Name","value":"serviceName"}},{"kind":"Field","name":{"kind":"Name","value":"currency"}},{"kind":"Field","name":{"kind":"Name","value":"revenueMinor"}},{"kind":"Field","name":{"kind":"Name","value":"appointments"}}]}}]}}]}}]} as unknown as DocumentNode<ManagerReportQuery, ManagerReportQueryVariables>;

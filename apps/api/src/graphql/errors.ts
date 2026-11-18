@@ -36,6 +36,10 @@ export function formatGraphQLError(formatted: GraphQLFormattedError, error: unkn
   if (isBookingError(original)) {
     return { message: original.message, extensions: { code: original.code, ...original.details } };
   }
+  const pgCode = typeof original === 'object' && original !== null ? (original as { code?: unknown }).code : undefined;
+  if (typeof pgCode === 'string' && (pgCode.startsWith('22') || pgCode === '08P01')) {
+    return { message: 'Invalid input value', extensions: { code: ERROR_CODES.VALIDATION_FAILED } };
+  }
   const code = formatted.extensions?.['code'];
   if (typeof code === 'string' && isErrorCode(code)) return formatted;
   logger.error('Unhandled GraphQL error', original instanceof Error ? original.stack : String(original));

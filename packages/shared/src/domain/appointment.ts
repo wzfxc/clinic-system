@@ -139,6 +139,9 @@ export function translateDbError(err: unknown): BookingError | null {
   if (err instanceof BookingError) return err;
   const { code, constraint } = pgErrorOf(err);
   if (code === 'CL001') return new BookingError('PATIENT_LIMIT_EXCEEDED');
+  if (code !== undefined && code.startsWith('22')) {
+    return new BookingError('VALIDATION_FAILED', 'invalid input value');
+  }
   if ((code === '23P01' || code === '23505') && constraint !== undefined) {
     const mapped = CONSTRAINT_TO_CODE[constraint];
     if (mapped !== undefined) return new BookingError(mapped);

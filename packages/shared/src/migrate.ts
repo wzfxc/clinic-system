@@ -4,6 +4,15 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { loadEnv } from './env.js';
 
+for (const rel of ['../../.env', '../../../.env']) {
+  try {
+    process.loadEnvFile(path.resolve(import.meta.dirname, rel));
+    break;
+  } catch {
+    // Environment variables may already be provided.
+  }
+}
+
 async function main(): Promise<void> {
   const { DATABASE_URL } = loadEnv();
   const pool = new Pool({ connectionString: DATABASE_URL });

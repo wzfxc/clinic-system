@@ -10,6 +10,15 @@ export const MINUTE_MS = 60_000;
 export const HOUR_MS = 60 * MINUTE_MS;
 export const DAY_MS = 24 * HOUR_MS;
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** True only when `value` is a real calendar date in YYYY-MM-DD format (rejects e.g. 2026-02-31). */
+export function isValidIsoDate(value: string): boolean {
+  if (!ISO_DATE_RE.test(value)) return false;
+  const dt = DateTime.fromISO(value, { zone: 'utc' });
+  return dt.isValid && dt.toISODate() === value;
+}
+
 function inZone(instant: Date, timezone: string): DateTime {
   const dt = DateTime.fromJSDate(instant, { zone: timezone });
   if (!dt.isValid) throw new Error(`Invalid time zone: ${timezone}`);

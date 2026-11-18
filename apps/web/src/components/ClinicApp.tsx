@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useSubscription } from 'urql';
 import {
   AcceptOfferDocument,
+  AppointmentHistoryDocument,
   CancelAppointmentDocument,
   CatalogDocument,
   ChangeAppointmentStatusDocument,
@@ -23,10 +24,12 @@ import {
   MarkSickLeaveDocument,
   MeDocument,
   MyAppointmentsDocument,
+  MyRemindersDocument,
   MyWaitlistDocument,
   RescheduleAppointmentDocument,
   SlotsChangedDocument,
   StaffAppointmentsDocument,
+  UpsertScheduleExceptionDocument,
   type HoldSlotMutation,
 } from '../graphql/generated';
 import { formatDateTime, formatMoneyMinor } from '../lib/format';
@@ -46,6 +49,7 @@ interface WaitlistFormValues {
 interface SickLeaveFormValues {
   doctorId: string;
   date: string;
+  kind: 'sick' | 'vacation' | 'extra_day';
 }
 
 const DEFAULT_CLINICS = [
@@ -149,6 +153,18 @@ export function ClinicApp({ locale }: { locale: string }) {
     pause: !me || me.role !== 'patient',
     requestPolicy: 'cache-and-network',
   });
+  const [myRemindersRes, reexecuteMyReminders] = useQuery({
+    query: MyRemindersDocument,
+    pause: !me || me.role !== 'patient',
+    requestPolicy: 'cache-and-network',
+  });
+  const [historyApptId, setHistoryApptId] = useState<number | null>(null);
+  const [historyRes] = useQuery({
+    query: AppointmentHistoryDocument,
+    variables: { appointmentId: historyApptId ?? 0 },
+    pause: historyApptId === null,
+    requestPolicy: 'network-only',
+  });
 
   // Staff queries
   const [staffApptsRes, reexecuteStaffAppts] = useQuery({
@@ -196,6 +212,7 @@ export function ClinicApp({ locale }: { locale: string }) {
   const [, executeDeclineOffer] = useMutation(DeclineOfferDocument);
   const [, executeChangeStatus] = useMutation(ChangeAppointmentStatusDocument);
   const [, executeSickLeave] = useMutation(MarkSickLeaveDocument);
+  const [, executeUpsertException] = useMutation(UpsertScheduleExceptionDocument);
 
   // Active hold state & 10-minute countdown timer
   const [activeHold, setActiveHold] = useState<HeldAppointment | null>(null);
@@ -203,6 +220,30 @@ export function ClinicApp({ locale }: { locale: string }) {
   const [actionError, setActionError] = useState<string>('');
   const [actionMessage, setActionMessage] = useState<string>('');
   const [registrarPatientId, setRegistrarPatientId] = useState<string>('1');
+  const [slotLimit, setSlotLimit] = useState<number>(48);
+
+  const statusLabel = (s: string): string => {
+    switch (s) {
+      case 'held':
+        return t('status_held');
+      case 'booked':
+        return t('status_booked');
+      case 'checked_in':
+        return t('status_checked_in');
+      case 'completed':
+        return t('status_completed');
+      case 'no_show':
+        return t('status_no_show');
+      case 'cancelled':
+        return t('status_cancelled');
+      case 'waiting':
+        return t('status_waiting');
+      case 'offered':
+        return t('status_offered');
+      default:
+        return s;
+    }
+  };
 
   useEffect(() => {
     if (!activeHold) return;
@@ -228,7 +269,7 @@ export function ClinicApp({ locale }: { locale: string }) {
   });
 
   const sickLeaveForm = useForm<SickLeaveFormValues>({
-    defaultValues: { doctorId: '1', date: '2026-11-20' },
+    defaultValues: { doctorId: '1', date: '2026-11-20', kind: 'sick' },
   });
 
   const onLoginSubmit = loginForm.handleSubmit(async (values) => {
@@ -401,18 +442,35 @@ export function ClinicApp({ locale }: { locale: string }) {
 
   const onSickLeave = sickLeaveForm.handleSubmit(async (values) => {
     setActionError('');
-    const res = await executeSickLeave({
-      doctorId: Number(values.doctorId),
-      clinicId: me?.clinicId ?? currentClinic.id,
-      date: values.date,
-    });
-    if (res.error) {
-      setActionError(extractErrorCode(res.error));
-      return;
+    const clinicId = me?.clinicId ?? currentClinic.id;
+    const doctorId = Number(values.doctorId);
+    if (values.kind === 'sick') {
+      const res = await executeSickLeave({ doctorId, clinicId, date: values.date });
+      if (res.error) {
+        setActionError(extractErrorCode(res.error));
+        return;
+      }
+      setActionMessage(
+        `Sick leave applied=${String(res.data?.markSickLeave.applied)}: cancelled ${res.data?.markSickLeave.cancelledAppointmentIds.length ?? 0}`,
+      );
+    } else {
+      const res = await executeUpsertException({
+        input: {
+          doctorId,
+          clinicId,
+          date: values.date,
+          kind: values.kind === 'extra_day' ? 'extra_day' : 'day_off',
+          reason: values.kind === 'vacation' ? 'vacation' : 'other',
+          workStart: values.kind === 'extra_day' ? '10:00' : null,
+          workEnd: values.kind === 'extra_day' ? '14:00' : null,
+        },
+      });
+      if (res.error) {
+        setActionError(extractErrorCode(res.error));
+        return;
+      }
+      setActionMessage(`Schedule updated: ${values.kind} (${values.date})`);
     }
-    setActionMessage(
-      `Sick leave applied=${String(res.data?.markSickLeave.applied)}: cancelled ${res.data?.markSickLeave.cancelledAppointmentIds.length ?? 0}`,
-    );
     reexecuteStaffAppts({ requestPolicy: 'network-only' });
     reexecuteSlots({ requestPolicy: 'network-only' });
   });
@@ -421,8 +479,11 @@ export function ClinicApp({ locale }: { locale: string }) {
   const activeAppointmentsCount = myAppointments.filter((a) => a.status !== 'cancelled').length;
   const pendingOffers = (myWaitlistRes.data?.myWaitlistOffers ?? []).filter((o) => o.status === 'pending');
   const waitlistEntries = myWaitlistRes.data?.myWaitlistEntries ?? [];
+  const myReminders = myRemindersRes.data?.myReminders ?? [];
+  const historyEvents = historyRes.data?.appointmentHistory ?? [];
   const staffAppointments = staffApptsRes.data?.appointments ?? [];
   const report = reportRes.data?.managerReport;
+  void reexecuteMyReminders;
 
   const qsSuffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
 
@@ -696,7 +757,7 @@ export function ClinicApp({ locale }: { locale: string }) {
               </div>
 
               <div data-testid="slots-grid" className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6">
-                {filteredSlots.slice(0, 48).map((slot) => {
+                {filteredSlots.slice(0, slotLimit).map((slot) => {
                   const key = `${slot.doctorId}-${slot.startAt}`;
                   return (
                     <button
@@ -723,6 +784,18 @@ export function ClinicApp({ locale }: { locale: string }) {
                   );
                 })}
               </div>
+              {filteredSlots.length > slotLimit ? (
+                <div className="mt-3 text-center">
+                  <button
+                    type="button"
+                    data-testid="show-more-slots-btn"
+                    onClick={() => setSlotLimit((n) => n + 96)}
+                    className="rounded border px-4 py-1.5 text-xs font-medium hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  >
+                    {t('showMore')} ({slotLimit} / {filteredSlots.length})
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </section>
@@ -839,7 +912,7 @@ export function ClinicApp({ locale }: { locale: string }) {
                 {waitlistEntries.map((entry) => (
                   <li key={entry.id} className="flex items-center justify-between py-2">
                     <span>
-                      Entry #{entry.id} · {t('doctor')} #{entry.doctorId} · {entry.dateFrom} → {entry.dateTo} ({entry.status})
+                      #{entry.id} · {t('doctor')} #{entry.doctorId} · {entry.dateFrom} → {entry.dateTo} ({statusLabel(entry.status)})
                     </span>
                     <button
                       type="button"
@@ -856,6 +929,23 @@ export function ClinicApp({ locale }: { locale: string }) {
           </section>
         ) : null}
 
+        {/* In-App Reminders (24h and 2h) */}
+        {me?.role === 'patient' && myReminders.length > 0 ? (
+          <section data-testid="in-app-reminders" className="rounded-lg border bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-lg font-semibold">{t('reminders')}</h2>
+            <ul className="divide-y text-sm">
+              {myReminders.map((rem) => (
+                <li key={rem.id} className="flex items-center justify-between py-2">
+                  <span>
+                    #{rem.appointmentId} · <span className="font-medium">{rem.kind.toUpperCase()}</span> ·{' '}
+                    {formatDateTime(rem.startsAt, currentClinic.timezone, locale)} ({t('doctor')} #{rem.doctorId})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {/* Patient Appointments */}
         {me?.role === 'patient' ? (
           <section data-testid="my-appointments" className="rounded-lg border bg-white p-6 shadow-sm">
@@ -863,47 +953,77 @@ export function ClinicApp({ locale }: { locale: string }) {
               {t('myAppointments')} ({tHome('appointments', { count: activeAppointmentsCount })})
             </h2>
             <ul className="divide-y text-sm">
-              {myAppointments.map((appt) => (
-                <li
-                  key={appt.id}
-                  data-testid={`appointment-${appt.id}`}
-                  data-status={appt.status}
-                  className="flex flex-wrap items-center justify-between gap-3 py-3"
-                >
-                  <div>
-                    <span className="font-semibold">#{appt.id}</span> ·{' '}
-                    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium">{appt.status}</span> ·{' '}
-                    {formatDateTime(appt.startsAt, appt.clinic.timezone, locale)} ({appt.clinic.city}) ·{' '}
-                    {appt.service.name} · {t('doctor')} #{appt.doctor.id} ({appt.doctor.specialty}) ·{' '}
-                    <span className="font-medium text-blue-700">
-                      {formatMoneyMinor(appt.priceMinor, appt.currency, locale)}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    {(appt.status === 'booked' || appt.status === 'held') && filteredSlots[0] ? (
+              {myAppointments.map((appt) => {
+                const sameDoctorSlot = (slotsRes.data?.findFreeSlots ?? []).find(
+                  (s) => s.doctorId === appt.doctor.id && s.startAt !== appt.startsAt,
+                );
+                return (
+                  <li
+                    key={appt.id}
+                    data-testid={`appointment-${appt.id}`}
+                    data-status={appt.status}
+                    className="flex flex-wrap items-center justify-between gap-3 py-3"
+                  >
+                    <div>
+                      <span className="font-semibold">#{appt.id}</span> ·{' '}
+                      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium">
+                        {statusLabel(appt.status)}
+                      </span>{' '}
+                      · {formatDateTime(appt.startsAt, appt.clinic.timezone, locale)} ({appt.clinic.city}) ·{' '}
+                      {appt.service.name} · {t('doctor')} #{appt.doctor.id} ({appt.doctor.specialty}) ·{' '}
+                      <span className="font-medium text-blue-700">
+                        {formatMoneyMinor(appt.priceMinor, appt.currency, locale)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
                       <button
                         type="button"
-                        data-testid={`reschedule-appointment-${appt.id}`}
-                        onClick={() => onReschedule(appt.id, appt.timeVersion, filteredSlots[0]!.startAt)}
+                        data-testid={`history-appointment-${appt.id}`}
+                        onClick={() => setHistoryApptId((prev) => (prev === appt.id ? null : appt.id))}
                         className="rounded border px-2.5 py-1 text-xs hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
                       >
-                        {t('reschedule')}
+                        {t('history')}
                       </button>
-                    ) : null}
-                    {appt.status === 'booked' || appt.status === 'held' ? (
-                      <button
-                        type="button"
-                        data-testid={`cancel-appointment-${appt.id}`}
-                        onClick={() => onCancelAppointment(appt.id)}
-                        className="rounded border border-red-300 px-2.5 py-1 text-xs text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-600"
-                      >
-                        {t('cancelBooking')}
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
+                      {appt.status === 'booked' && sameDoctorSlot ? (
+                        <button
+                          type="button"
+                          data-testid={`reschedule-appointment-${appt.id}`}
+                          onClick={() => onReschedule(appt.id, appt.timeVersion, sameDoctorSlot.startAt)}
+                          className="rounded border px-2.5 py-1 text-xs hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        >
+                          {t('reschedule')} ({sameDoctorSlot.localDate} {sameDoctorSlot.localTime})
+                        </button>
+                      ) : null}
+                      {appt.status === 'booked' || appt.status === 'held' ? (
+                        <button
+                          type="button"
+                          data-testid={`cancel-appointment-${appt.id}`}
+                          onClick={() => onCancelAppointment(appt.id)}
+                          className="rounded border border-red-300 px-2.5 py-1 text-xs text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-600"
+                        >
+                          {t('cancelBooking')}
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
+            {historyApptId !== null && historyEvents.length > 0 ? (
+              <div data-testid="appointment-history" className="mt-4 rounded border bg-slate-50 p-3 text-xs">
+                <div className="mb-1 font-semibold">
+                  {t('history')} #{historyApptId}
+                </div>
+                <ul className="space-y-1">
+                  {historyEvents.map((ev) => (
+                    <li key={ev.id}>
+                      {formatDateTime(ev.occurredAt, currentClinic.timezone, locale)} · {ev.kind} (
+                      {ev.actorRole ?? 'system'}) {ev.reason ? `· ${ev.reason}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -951,6 +1071,21 @@ export function ClinicApp({ locale }: { locale: string }) {
                     className="w-36 rounded border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
                     {...sickLeaveForm.register('date', { required: true })}
                   />
+                </div>
+                <div>
+                  <label htmlFor="sl-kind" className="mb-1 block text-xs font-medium">
+                    Type
+                  </label>
+                  <select
+                    id="sl-kind"
+                    data-testid="schedule-exception-kind"
+                    className="rounded border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    {...sickLeaveForm.register('kind')}
+                  >
+                    <option value="sick">{t('markSickLeave')}</option>
+                    <option value="vacation">Vacation (day off)</option>
+                    <option value="extra_day">Extra day (10:00–14:00)</option>
+                  </select>
                 </div>
                 <button
                   type="submit"

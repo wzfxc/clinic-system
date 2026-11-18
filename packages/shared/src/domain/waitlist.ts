@@ -7,7 +7,7 @@ import { applyActor, lockPatient, type Actor } from './appointment.js';
 import { confirmAppointment, type ConfirmOutcome } from './confirm.js';
 import { DEFAULT_HOOKS, type DomainHooks } from './hooks.js';
 import { onlineBookingBlockedUntil } from './online-block.js';
-import { addCalendarDays, localDateOf } from './time.js';
+import { addCalendarDays, isValidIsoDate, localDateOf } from './time.js';
 import { BookingError, numberOf, pgErrorOf, type Tx } from './tx.js';
 import { closeOffer, queueWaitlistMail, releaseSlot } from './waitlist-cascade.js';
 
@@ -25,8 +25,6 @@ export function createWaitlistHooks(): DomainHooks {
   };
 }
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
 export interface JoinInput {
   patientId: number;
   doctorId: number;
@@ -41,7 +39,7 @@ export interface JoinInput {
 
 export async function joinWaitlist(tx: Tx, clock: Clock, input: JoinInput): Promise<number> {
   const now = clock.now();
-  if (!DATE_PATTERN.test(input.dateFrom) || !DATE_PATTERN.test(input.dateTo) || input.dateFrom > input.dateTo) {
+  if (!isValidIsoDate(input.dateFrom) || !isValidIsoDate(input.dateTo) || input.dateFrom > input.dateTo) {
     throw new BookingError('VALIDATION_FAILED', 'invalid date range');
   }
   await applyActor(tx, input.actor);

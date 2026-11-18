@@ -4,15 +4,20 @@
  * Domain functions enforce the rules again, so this layer only decides who may call and what they may name.
  */
 import { Args, Context, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
-import { ERROR_CODES, type Appointment, type AuthActor } from '@clinic/shared';
+import { ERROR_CODES, isValidIsoDate, type Appointment, type AuthActor } from '@clinic/shared';
 import type { RequestContext } from '../graphql/context.js';
 import { isBookingError } from '../graphql/errors.js';
 import { graphQLError, requireAuthActor, requirePatient } from '../graphql/guards.js';
 import { AppointmentModel } from '../graphql/models.js';
+import { findAppointment } from '../appointments/appointment.queries.js';
 import {
+  AppointmentEventModel,
   HoldSlotInput,
+  InAppReminderModel,
   JoinWaitlistInput,
   SickLeaveResultModel,
+  UpsertScheduleExceptionInput,
+  UpsertScheduleTemplateInput,
   WaitlistEntryModel,
   WaitlistOfferModel,
 } from './booking.models.js';
@@ -20,7 +25,7 @@ import {
 const STAFF_STATUSES = ['checked_in', 'no_show', 'completed'] as const;
 type StaffStatus = (typeof STAFF_STATUSES)[number];
 const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function isStaffStatus(value: string): value is StaffStatus {
   return (STAFF_STATUSES as readonly string[]).includes(value);
@@ -34,8 +39,15 @@ function validateIdempotencyKey(key: string): string {
 }
 
 function validateDate(value: string, field: string): string {
-  if (!DATE_PATTERN.test(value)) {
-    throw graphQLError(ERROR_CODES.VALIDATION_FAILED, `${field} must be YYYY-MM-DD`);
+  if (!isValidIsoDate(value)) {
+    throw graphQLError(ERROR_CODES.VALIDATION_FAILED, `${field} must be a valid YYYY-MM-DD calendar date`);
+  }
+  return value;
+}
+
+function validateTime(value: string, field: string): string {
+  if (!TIME_PATTERN.test(value)) {
+    throw graphQLError(ERROR_CODES.VALIDATION_FAILED, `${field} must be HH:MM`);
   }
   return value;
 }
@@ -82,6 +94,41 @@ export class BookingResolver {
         WHERE patient_id = $1 AND status IN ('waiting', 'offered')
         ORDER BY id DESC LIMIT 20`,
       [actor.patientId],
+    );
+    return rows;
+  }
+
+  @Query(() => [InAppReminderModel], { description: 'In-app 24h and 2h visit reminders for the signed-in patient.' })
+  async myReminders(@Context() ctx: RequestContext): Promise<InAppReminderModel[]> {
+    const actor = requirePatient(ctx);
+    const { rows } = await ctx.pool.query<InAppReminderModel>(
+      `SELECT r.id::int AS id, r.appointment_id::int AS "appointmentId", r.kind::text AS kind,
+              r.due_at AS "dueAt", a.starts_at AS "startsAt", a.clinic_id::int AS "clinicId", a.doctor_id::int AS "doctorId"
+         FROM reminders r
+         JOIN appointments a ON a.id = r.appointment_id
+        WHERE a.patient_id = $1 AND r.cancelled_at IS NULL AND r.skipped_at IS NULL AND a.status <> 'cancelled'
+        ORDER BY r.due_at DESC LIMIT 20`,
+      [actor.patientId],
+    );
+    return rows;
+  }
+
+  @Query(() => [AppointmentEventModel], { description: 'Audit history of a visible appointment.' })
+  async appointmentHistory(
+    @Context() ctx: RequestContext,
+    @Args('appointmentId', { type: () => Int }) appointmentId: number,
+  ): Promise<AppointmentEventModel[]> {
+    const actor = requireAuthActor(ctx);
+    const found = await findAppointment(ctx.pool, actor, appointmentId);
+    if (!found) throw graphQLError(ERROR_CODES.NOT_FOUND, 'appointment not found');
+    const { rows } = await ctx.pool.query<AppointmentEventModel>(
+      `SELECT id::int AS id, appointment_id::int AS "appointmentId", kind::text AS kind,
+              from_status::text AS "fromStatus", to_status::text AS "toStatus", actor_role AS "actorRole",
+              is_late AS "isLate", is_strike AS "isStrike", reason, occurred_at AS "occurredAt"
+         FROM appointment_events
+        WHERE appointment_id = $1
+        ORDER BY occurred_at, id`,
+      [appointmentId],
     );
     return rows;
   }
@@ -251,5 +298,88 @@ export class BookingResolver {
     const actor = requireAuthActor(ctx);
     if (actor.role !== 'receptionist') throw graphQLError(ERROR_CODES.FORBIDDEN, 'registrars only');
     return ctx.booking.markSickLeave({ doctorId, clinicId, date: validateDate(date, 'date'), actor });
+  }
+
+  @Mutation(() => Boolean, { description: 'Registrar updates a doctor weekly schedule template in their clinic.' })
+  async upsertScheduleTemplate(
+    @Context() ctx: RequestContext,
+    @Args('input', { type: () => UpsertScheduleTemplateInput }) input: UpsertScheduleTemplateInput,
+  ): Promise<boolean> {
+    const actor = requireAuthActor(ctx);
+    if (actor.role !== 'receptionist' || actor.clinicId !== input.clinicId) {
+      throw graphQLError(ERROR_CODES.FORBIDDEN, 'only the clinic registrar may edit schedule templates');
+    }
+    if (!Number.isInteger(input.weekday) || input.weekday < 1 || input.weekday > 7) {
+      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'weekday must be between 1 and 7');
+    }
+    const workStart = validateTime(input.workStart, 'workStart');
+    const workEnd = validateTime(input.workEnd, 'workEnd');
+    if (workStart >= workEnd) throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'workStart must precede workEnd');
+    const breakStart = input.breakStart ? validateTime(input.breakStart, 'breakStart') : null;
+    const breakEnd = input.breakEnd ? validateTime(input.breakEnd, 'breakEnd') : null;
+    if ((breakStart === null) !== (breakEnd === null)) {
+      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'breakStart and breakEnd must be provided together');
+    }
+    if (breakStart !== null && breakEnd !== null && (breakStart < workStart || breakEnd <= breakStart || breakEnd > workEnd)) {
+      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'break must fall within working hours');
+    }
+    const client = await ctx.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`DELETE FROM schedule_templates WHERE doctor_id = $1 AND clinic_id = $2 AND weekday = $3`, [
+        input.doctorId,
+        input.clinicId,
+        input.weekday,
+      ]);
+      await client.query(
+        `INSERT INTO schedule_templates (doctor_id, clinic_id, weekday, work_start, work_end, break_start, break_end)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [input.doctorId, input.clinicId, input.weekday, workStart, workEnd, breakStart, breakEnd],
+      );
+      await client.query('COMMIT');
+      return true;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  @Mutation(() => Boolean, { description: 'Registrar sets a date exception (vacation, sick, extra_day) for a doctor.' })
+  async upsertScheduleException(
+    @Context() ctx: RequestContext,
+    @Args('input', { type: () => UpsertScheduleExceptionInput }) input: UpsertScheduleExceptionInput,
+  ): Promise<boolean> {
+    const actor = requireAuthActor(ctx);
+    if (actor.role !== 'receptionist' || actor.clinicId !== input.clinicId) {
+      throw graphQLError(ERROR_CODES.FORBIDDEN, 'only the clinic registrar may edit schedule exceptions');
+    }
+    const date = validateDate(input.date, 'date');
+    if (input.kind !== 'day_off' && input.kind !== 'extra_day') {
+      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'kind must be day_off or extra_day');
+    }
+    if (input.reason !== 'vacation' && input.reason !== 'sick' && input.reason !== 'other') {
+      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'reason must be vacation, sick or other');
+    }
+    if (input.kind === 'day_off' && input.reason === 'sick') {
+      await ctx.booking.markSickLeave({ doctorId: input.doctorId, clinicId: input.clinicId, date, actor });
+      return true;
+    }
+    const workStart = input.kind === 'extra_day' ? validateTime(input.workStart ?? '', 'workStart') : null;
+    const workEnd = input.kind === 'extra_day' ? validateTime(input.workEnd ?? '', 'workEnd') : null;
+    if (input.kind === 'extra_day' && (!workStart || !workEnd || workStart >= workEnd)) {
+      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'extra_day requires workStart < workEnd');
+    }
+    await ctx.pool.query(
+      `INSERT INTO schedule_exceptions (doctor_id, clinic_id, on_date, kind, reason, work_start, work_end, created_by, created_at)
+       VALUES ($1, $2, $3::date, $4::exception_kind, $5::exception_reason, $6, $7, $8, $9)
+       ON CONFLICT (doctor_id, clinic_id, on_date) DO UPDATE
+         SET kind = EXCLUDED.kind, reason = EXCLUDED.reason,
+             work_start = EXCLUDED.work_start, work_end = EXCLUDED.work_end,
+             break_start = NULL, break_end = NULL`,
+      [input.doctorId, input.clinicId, date, input.kind, input.reason, workStart, workEnd, actor.userId, ctx.clock.now()],
+    );
+    return true;
   }
 }

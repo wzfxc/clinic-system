@@ -10,7 +10,7 @@ import type { AuthActor } from './actor.js';
 import { applyActor } from './appointment.js';
 import { advisoryLock } from './hold.js';
 import { DEFAULT_HOOKS, type DomainHooks, type FreedInterval } from './hooks.js';
-import { localDateOf } from './time.js';
+import { isValidIsoDate, localDateOf } from './time.js';
 import { queuePriorityEntries } from './waitlist.js';
 import { BookingError, numberOf, type Tx } from './tx.js';
 
@@ -30,8 +30,6 @@ export interface SickLeaveResult {
   applied: boolean;
   cancelledAppointmentIds: number[];
 }
-
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 interface CancelledRow {
   id: string;
@@ -116,7 +114,7 @@ export async function markSickLeave(
   if (input.actor.role !== 'receptionist' || input.actor.clinicId !== input.clinicId) {
     throw new BookingError('FORBIDDEN', 'only the clinic registrar may record sick leave');
   }
-  if (!DATE_PATTERN.test(input.date)) throw new BookingError('VALIDATION_FAILED', 'invalid date');
+  if (!isValidIsoDate(input.date)) throw new BookingError('VALIDATION_FAILED', 'invalid date');
   await applyActor(tx, input.actor);
 
   await advisoryLock(tx, `doctor:${input.doctorId}`);

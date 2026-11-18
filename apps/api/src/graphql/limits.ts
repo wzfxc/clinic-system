@@ -28,7 +28,7 @@ export function queryDepth(document: DocumentNode): number {
   const visit = (set: SelectionSetNode, depth: number, spreading: ReadonlySet<string>): void => {
     for (const selection of set.selections) {
       visits += 1;
-      if (visits > MAX_SELECTION_VISITS) {
+      if (visits > MAX_QUERY_COMPLEXITY || visits > MAX_SELECTION_VISITS) {
         throw new GraphQLError('Query is too complex', { extensions: { code: ERROR_CODES.QUERY_TOO_COMPLEX } });
       }
       if (selection.kind === Kind.FIELD) {
@@ -93,8 +93,27 @@ function assertRootFieldLimits(document: DocumentNode): void {
   }
 }
 
+function containsNullByte(value: unknown): boolean {
+  if (typeof value === 'string') return value.includes('\u0000');
+  if (Array.isArray(value)) return value.some(containsNullByte);
+  if (typeof value === 'object' && value !== null) {
+    return Object.values(value).some(containsNullByte);
+  }
+  return false;
+}
+
+function assertNoNullBytesInAst(document: DocumentNode): void {
+  const raw = JSON.stringify(document);
+  if (raw.includes('\\u0000') || raw.includes('\u0000')) {
+    throw new GraphQLError('Input must not contain NUL bytes', {
+      extensions: { code: ERROR_CODES.VALIDATION_FAILED },
+    });
+  }
+}
+
 /** Limits that need only the document; also applied to operations received over WebSocket. */
 export function assertStructuralLimits(document: DocumentNode): void {
+  assertNoNullBytesInAst(document);
   if (queryDepth(document) > MAX_QUERY_DEPTH) {
     throw new GraphQLError('Query is too deep', { extensions: { code: ERROR_CODES.QUERY_TOO_DEEP } });
   }
@@ -106,6 +125,11 @@ export function createLimitsPlugin(): ApolloServerPlugin {
     async requestDidStart() {
       return {
         async didResolveOperation({ document, schema, request, operationName }) {
+          if (containsNullByte(request.variables)) {
+            throw new GraphQLError('Input must not contain NUL bytes', {
+              extensions: { code: ERROR_CODES.VALIDATION_FAILED },
+            });
+          }
           assertStructuralLimits(document);
           const complexity = getComplexity({
             schema,

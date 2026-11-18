@@ -4,7 +4,7 @@ import { ERROR_CODES } from '@clinic/shared';
 import type { RequestContext } from '../graphql/context.js';
 import { graphQLError, requireAuthActor } from '../graphql/guards.js';
 import { MeModel } from '../graphql/models.js';
-import { LoginThrottle } from './login-throttle.js';
+import { LoginThrottle, MAX_IP_REGISTRATIONS } from './login-throttle.js';
 import { getDummyHash, hashPassword, verifyPassword } from './password.js';
 import { SESSION_COOKIE } from './sessions.js';
 
@@ -79,6 +79,12 @@ export class AuthResolver {
   @Mutation(() => MeModel)
   async register(@Args('input', { type: () => RegisterInput }) input: RegisterInput, @Context() ctx: RequestContext): Promise<MeModel> {
     const data = validateRegistration(input);
+    const throttle = new LoginThrottle(ctx.pool, ctx.clock);
+    const ipKey = `reg-ip:${ctx.clientIp}`;
+    if (await throttle.isLocked(ipKey, ctx.deviceKey)) {
+      throw graphQLError(ERROR_CODES.RATE_LIMITED, 'too many registration attempts, try again later');
+    }
+    await throttle.recordFailure(ipKey, ctx.deviceKey, MAX_IP_REGISTRATIONS);
     const passwordHash = await hashPassword(input.password);
     const client = await ctx.pool.connect();
     try {
@@ -119,7 +125,7 @@ export class AuthResolver {
     if (password.length > MAX_PASSWORD_LENGTH) throw validationError('password', `length must be at most ${MAX_PASSWORD_LENGTH}`);
     const normalized = email.trim().toLowerCase();
     const throttle = new LoginThrottle(ctx.pool, ctx.clock);
-    if (await throttle.isLocked(normalized)) {
+    if (await throttle.isLocked(normalized, ctx.deviceKey)) {
       throw graphQLError(ERROR_CODES.RATE_LIMITED, 'too many failed attempts, try again later');
     }
     const { rows } = await ctx.pool.query<{ id: number; role: string; password_hash: string }>(
@@ -130,10 +136,10 @@ export class AuthResolver {
     // scrypt always runs (dummy hash for an unknown email), so response time does not reveal which emails exist.
     const passwordOk = await verifyPassword(password, user?.password_hash ?? (await getDummyHash()));
     if (!user || !passwordOk) {
-      await throttle.recordFailure(normalized);
+      await throttle.recordFailure(normalized, ctx.deviceKey);
       throw graphQLError(ERROR_CODES.INVALID_CREDENTIALS, 'invalid email or password');
     }
-    await throttle.clear(normalized);
+    await throttle.clear(normalized, ctx.deviceKey);
     const token = await ctx.sessions.create(ctx.pool, user.id);
     writeSessionCookie(ctx, token);
     return { userId: user.id, role: user.role };

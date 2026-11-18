@@ -33,6 +33,20 @@ export type Appointment = {
   timeVersion: Scalars['Int']['output'];
 };
 
+export type AppointmentEvent = {
+  __typename?: 'AppointmentEvent';
+  actorRole?: Maybe<Scalars['String']['output']>;
+  appointmentId: Scalars['Int']['output'];
+  fromStatus?: Maybe<Scalars['String']['output']>;
+  id: Scalars['Int']['output'];
+  isLate: Scalars['Boolean']['output'];
+  isStrike: Scalars['Boolean']['output'];
+  kind: Scalars['String']['output'];
+  occurredAt: Scalars['DateTime']['output'];
+  reason?: Maybe<Scalars['String']['output']>;
+  toStatus?: Maybe<Scalars['String']['output']>;
+};
+
 export type AppointmentFilter = {
   clinicId?: InputMaybe<Scalars['Int']['input']>;
   doctorId?: InputMaybe<Scalars['Int']['input']>;
@@ -93,6 +107,17 @@ export type HoldSlotInput = {
   startsAt: Scalars['DateTime']['input'];
 };
 
+export type InAppReminder = {
+  __typename?: 'InAppReminder';
+  appointmentId: Scalars['Int']['output'];
+  clinicId: Scalars['Int']['output'];
+  doctorId: Scalars['Int']['output'];
+  dueAt: Scalars['DateTime']['output'];
+  id: Scalars['Int']['output'];
+  kind: Scalars['String']['output'];
+  startsAt: Scalars['DateTime']['output'];
+};
+
 export type JoinWaitlistInput = {
   clinicId: Scalars['Int']['input'];
   dateFrom: Scalars['String']['input'];
@@ -130,6 +155,10 @@ export type Mutation = {
   markSickLeave: SickLeavePayload;
   register: Me;
   rescheduleAppointment: Appointment;
+  /** Registrar sets a date exception (vacation, sick, extra_day) for a doctor. */
+  upsertScheduleException: Scalars['Boolean']['output'];
+  /** Registrar updates a doctor weekly schedule template in their clinic. */
+  upsertScheduleTemplate: Scalars['Boolean']['output'];
 };
 
 
@@ -201,6 +230,16 @@ export type MutationRescheduleAppointmentArgs = {
   newStartsAt: Scalars['DateTime']['input'];
 };
 
+
+export type MutationUpsertScheduleExceptionArgs = {
+  input: UpsertScheduleExceptionInput;
+};
+
+
+export type MutationUpsertScheduleTemplateArgs = {
+  input: UpsertScheduleTemplateInput;
+};
+
 export type Patient = {
   __typename?: 'Patient';
   email?: Maybe<Scalars['String']['output']>;
@@ -212,6 +251,8 @@ export type Patient = {
 export type Query = {
   __typename?: 'Query';
   appointment?: Maybe<Appointment>;
+  /** Audit history of a visible appointment. */
+  appointmentHistory: Array<AppointmentEvent>;
   /** Appointments visible to the actor, filtered within that scope. */
   appointments: Array<Appointment>;
   /** All clinics in the network. */
@@ -226,6 +267,8 @@ export type Query = {
   me: Me;
   /** The signed-in patient's own appointments. */
   myAppointments: Array<Appointment>;
+  /** In-app 24h and 2h visit reminders for the signed-in patient. */
+  myReminders: Array<InAppReminder>;
   /** Active waitlist entries for the signed-in patient. */
   myWaitlistEntries: Array<WaitlistEntry>;
   /** Pending and recent waitlist offers for the signed-in patient. */
@@ -237,6 +280,11 @@ export type Query = {
 
 export type QueryAppointmentArgs = {
   id: Scalars['Int']['input'];
+};
+
+
+export type QueryAppointmentHistoryArgs = {
+  appointmentId: Scalars['Int']['input'];
 };
 
 
@@ -341,6 +389,26 @@ export type Subscription = {
 
 export type SubscriptionSlotsChangedArgs = {
   clinicId: Scalars['Int']['input'];
+};
+
+export type UpsertScheduleExceptionInput = {
+  clinicId: Scalars['Int']['input'];
+  date: Scalars['String']['input'];
+  doctorId: Scalars['Int']['input'];
+  kind: Scalars['String']['input'];
+  reason: Scalars['String']['input'];
+  workEnd?: InputMaybe<Scalars['String']['input']>;
+  workStart?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpsertScheduleTemplateInput = {
+  breakEnd?: InputMaybe<Scalars['String']['input']>;
+  breakStart?: InputMaybe<Scalars['String']['input']>;
+  clinicId: Scalars['Int']['input'];
+  doctorId: Scalars['Int']['input'];
+  weekday: Scalars['Int']['input'];
+  workEnd: Scalars['String']['input'];
+  workStart: Scalars['String']['input'];
 };
 
 export type WaitlistEntry = {

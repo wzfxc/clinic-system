@@ -44,6 +44,17 @@
     "noShowShare": "No-show share",
     "lateCancelShare": "Late cancel share",
     "acceptedOffers": "Waitlist offers accepted",
-    "revenueByService": "Revenue by service"
+    "revenueByService": "Revenue by service",
+    "showMore": "Show more",
+    "reminders": "In-app reminders",
+    "history": "Appointment history",
+    "status_held": "Held",
+    "status_booked": "Booked",
+    "status_checked_in": "Checked in",
+    "status_completed": "Completed",
+    "status_no_show": "No-show",
+    "status_cancelled": "Cancelled",
+    "status_waiting": "Waiting",
+    "status_offered": "Offered"
   }
 }

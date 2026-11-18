@@ -72,6 +72,29 @@ type WaitlistOffer {
   status: String!
 }
 
+type InAppReminder {
+  id: Int!
+  appointmentId: Int!
+  kind: String!
+  dueAt: DateTime!
+  startsAt: DateTime!
+  clinicId: Int!
+  doctorId: Int!
+}
+
+type AppointmentEvent {
+  id: Int!
+  appointmentId: Int!
+  kind: String!
+  fromStatus: String
+  toStatus: String
+  actorRole: String
+  isLate: Boolean!
+  isStrike: Boolean!
+  reason: String
+  occurredAt: DateTime!
+}
+
 type WaitlistEntry {
   id: Int!
   clinicId: Int!
@@ -182,6 +205,12 @@ type Query {
   """Active waitlist entries for the signed-in patient."""
   myWaitlistEntries: [WaitlistEntry!]!
 
+  """In-app 24h and 2h visit reminders for the signed-in patient."""
+  myReminders: [InAppReminder!]!
+
+  """Audit history of a visible appointment."""
+  appointmentHistory(appointmentId: Int!): [AppointmentEvent!]!
+
   """All clinics in the network."""
   clinics: [Clinic!]!
 
@@ -232,6 +261,14 @@ type Mutation {
 
   """Registrar marks a doctor sick for a clinic day."""
   markSickLeave(doctorId: Int!, clinicId: Int!, date: String!): SickLeavePayload!
+
+  """Registrar updates a doctor weekly schedule template in their clinic."""
+  upsertScheduleTemplate(input: UpsertScheduleTemplateInput!): Boolean!
+
+  """
+  Registrar sets a date exception (vacation, sick, extra_day) for a doctor.
+  """
+  upsertScheduleException(input: UpsertScheduleExceptionInput!): Boolean!
 }
 
 input RegisterInput {
@@ -255,6 +292,26 @@ input JoinWaitlistInput {
   serviceId: Int!
   dateFrom: String!
   dateTo: String!
+}
+
+input UpsertScheduleTemplateInput {
+  doctorId: Int!
+  clinicId: Int!
+  weekday: Int!
+  workStart: String!
+  workEnd: String!
+  breakStart: String
+  breakEnd: String
+}
+
+input UpsertScheduleExceptionInput {
+  doctorId: Int!
+  clinicId: Int!
+  date: String!
+  kind: String!
+  reason: String!
+  workStart: String
+  workEnd: String
 }
 
 type Subscription {

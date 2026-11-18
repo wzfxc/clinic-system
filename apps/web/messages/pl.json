@@ -44,6 +44,17 @@
     "noShowShare": "Udział nieobecności",
     "lateCancelShare": "Udział późnych odwołań",
     "acceptedOffers": "Przyjęte oferty z listy",
-    "revenueByService": "Przychód według usług"
+    "revenueByService": "Przychód według usług",
+    "showMore": "Pokaż więcej",
+    "reminders": "Przypomnienia w aplikacji",
+    "history": "Historia wizyty",
+    "status_held": "Wstrzymana",
+    "status_booked": "Umówiona",
+    "status_checked_in": "Obecny",
+    "status_completed": "Zakończona",
+    "status_no_show": "Nieobecność",
+    "status_cancelled": "Anulowana",
+    "status_waiting": "Oczekuje",
+    "status_offered": "Zaproponowano"
   }
 }

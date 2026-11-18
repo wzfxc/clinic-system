@@ -243,6 +243,41 @@ mutation DeclineOffer($offerId: Int!) {
   declineOffer(offerId: $offerId)
 }
 
+query MyReminders {
+  myReminders {
+    id
+    appointmentId
+    kind
+    dueAt
+    startsAt
+    clinicId
+    doctorId
+  }
+}
+
+query AppointmentHistory($appointmentId: Int!) {
+  appointmentHistory(appointmentId: $appointmentId) {
+    id
+    appointmentId
+    kind
+    fromStatus
+    toStatus
+    actorRole
+    isLate
+    isStrike
+    reason
+    occurredAt
+  }
+}
+
+mutation UpsertScheduleTemplate($input: UpsertScheduleTemplateInput!) {
+  upsertScheduleTemplate(input: $input)
+}
+
+mutation UpsertScheduleException($input: UpsertScheduleExceptionInput!) {
+  upsertScheduleException(input: $input)
+}
+
 query ManagerReport($fromDate: String, $toDate: String) {
   managerReport(fromDate: $fromDate, toDate: $toDate) {
     fromDate

@@ -233,4 +233,17 @@ describe('input validation', () => {
     expect(codeOf(res)).toBe('GRAPHQL_VALIDATION_FAILED');
     expect(JSON.stringify(res)).not.toContain('Internal server error');
   });
+
+  it('rejects NUL bytes in input with VALIDATION_FAILED, never INTERNAL', async () => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'mutation($e: String!, $p: String!) { login(email: $e, password: $p) { userId } }',
+        variables: { e: 'test\u0000@example.test', p: 'demo-password' },
+      }),
+    });
+    const body = (await res.json()) as GqlResponse;
+    expect(codeOf(body)).toBe('VALIDATION_FAILED');
+  });
 });

@@ -44,6 +44,17 @@
     "noShowShare": "Частка неявок",
     "lateCancelShare": "Частка пізніх відмін",
     "acceptedOffers": "Прийнято з листа очікування",
-    "revenueByService": "Виручка за послугами"
+    "revenueByService": "Виручка за послугами",
+    "showMore": "Показати ще",
+    "reminders": "Нагадування в застосунку",
+    "history": "Історія запису",
+    "status_held": "Утримується (бронь)",
+    "status_booked": "Записано",
+    "status_checked_in": "Прийшов",
+    "status_completed": "Завершено",
+    "status_no_show": "Неявка",
+    "status_cancelled": "Скасовано",
+    "status_waiting": "Очікує",
+    "status_offered": "Запропоновано"
   }
 }

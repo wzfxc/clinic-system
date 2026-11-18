@@ -144,4 +144,24 @@ describe('login throttling', () => {
     const { rows } = await db.pool.query(`SELECT 1 FROM login_attempts WHERE email = 'user@example.test'`);
     expect(rows).toHaveLength(0);
   });
+
+  it('does not lock out the legitimate account owner when another device sprays wrong passwords', async () => {
+    const loginFromDevice = async (email: string, pw: string, ua: string): Promise<GqlResponse> => {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'user-agent': ua },
+        body: JSON.stringify({ query: `mutation { login(email: "${email}", password: "${pw}") { role } }` }),
+      });
+      return (await res.json()) as GqlResponse;
+    };
+    for (let i = 0; i < MAX_FAILURES; i += 1) {
+      expect(codeOf(await loginFromDevice('user@example.test', 'wrong-password', 'AttackerBot/1.0'))).toBe(
+        'INVALID_CREDENTIALS',
+      );
+    }
+    expect(codeOf(await loginFromDevice('user@example.test', PASSWORD, 'AttackerBot/1.0'))).toBe('RATE_LIMITED');
+    const ownerRes = await loginFromDevice('user@example.test', PASSWORD, 'OwnerBrowser/1.0');
+    expect(ownerRes.errors).toBeUndefined();
+    expect(ownerRes.data?.['login']).toEqual({ role: 'patient' });
+  });
 });
