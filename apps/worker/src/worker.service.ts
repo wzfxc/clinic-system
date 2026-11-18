@@ -20,7 +20,12 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
     const env = loadEnv();
     const config = DEFAULT_CONFIG;
     this.pool = new Pool({ connectionString: env.DATABASE_URL });
-    this.mailer = new SmtpMailer({ host: env.SMTP_HOST, port: env.SMTP_PORT, timeoutMs: config.smtpTimeoutMs });
+    this.mailer = new SmtpMailer({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      timeoutMs: config.smtpTimeoutMs,
+      requireTls: env.SMTP_REQUIRE_TLS,
+    });
     const workerId = `worker-${randomUUID()}`;
     this.runtime = new WorkerRuntime({
       pool: this.pool,
@@ -28,6 +33,7 @@ export class WorkerService implements OnModuleInit, OnApplicationShutdown {
       mailer: this.mailer,
       workerId,
       config,
+      redisUrl: env.REDIS_URL,
       onError: (message, err) => this.logger.error(`${message}: ${err instanceof Error ? err.message : String(err)}`),
     });
     await this.runtime.start();

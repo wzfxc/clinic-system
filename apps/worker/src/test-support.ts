@@ -23,9 +23,14 @@ export interface Setup {
 
 export const openDb = (): Promise<TestDb> => createTestDb();
 
-export async function setupWorld(db: TestDb, clock: Clock, timezone?: string): Promise<Setup> {
+export async function setupWorld(
+  db: TestDb,
+  clock: Clock,
+  timezone?: string,
+  doctor?: Parameters<typeof seedDoctor>[2],
+): Promise<Setup> {
   const w = await seedWorld(db.pool, timezone);
-  const doctorId = await seedDoctor(db.pool, w);
+  const doctorId = await seedDoctor(db.pool, w, doctor);
   return { db, svc: new BookingService(db.pool, clock), w, doctorId };
 }
 
@@ -51,4 +56,15 @@ export async function bookVisit(s: Setup, patientId: number, startsAt: Date): Pr
 export async function count(pool: Pool, sql: string, values: unknown[] = []): Promise<number> {
   const { rows } = await pool.query<{ n: string }>(sql, values);
   return Number(rows[0]?.n ?? 0);
+}
+
+/** Polls until `check` returns a truthy value; fails with `what` after `timeoutMs`. */
+export async function waitFor<T>(what: string, check: () => Promise<T | false | undefined>, timeoutMs = 15_000): Promise<T> {
+  const deadline = performance.now() + timeoutMs;
+  for (;;) {
+    const value = await check();
+    if (value) return value;
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }

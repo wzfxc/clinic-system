@@ -1,4 +1,4 @@
-import { localSlotInfo } from '@clinic/shared';
+import { localSlotInfo, SICK_LEAVE_TEMPLATE } from '@clinic/shared';
 
 export interface RenderedMail {
   subject: string;
@@ -32,7 +32,7 @@ export function renderMail(template: string, payload: Payload): RenderedMail {
         subject: 'Нагадування: візит за 2 години',
         text: `Ваш візит до клініки розпочнеться о ${visitTime(payload)}.`,
       };
-    case 'sick_leave':
+    case SICK_LEAVE_TEMPLATE:
       return {
         subject: 'Ваш запис скасовано',
         text: `Лікар не зможе прийняти вас ${str(payload, 'date')}, запис скасовано. Будь ласка, оберіть інший час.`,

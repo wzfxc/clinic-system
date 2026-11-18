@@ -16,6 +16,8 @@ export interface SmtpOptions {
   host: string;
   port: number;
   timeoutMs: number;
+  /** Refuse to send unless the connection upgrades to TLS. Off only for the local mailpit catcher. */
+  requireTls?: boolean;
   from?: string;
 }
 
@@ -30,7 +32,8 @@ export class SmtpMailer implements Mailer {
       host: options.host,
       port: options.port,
       secure: false,
-      ignoreTLS: true,
+      requireTLS: options.requireTls === true,
+      ignoreTLS: options.requireTls !== true,
       connectionTimeout: options.timeoutMs,
       greetingTimeout: options.timeoutMs,
       socketTimeout: options.timeoutMs,

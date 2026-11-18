@@ -6,6 +6,8 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(4000),
   SMTP_HOST: z.string().min(1).default('localhost'),
   SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  /** Plain SMTP is only for the local mailpit; set to true for any real relay. */
+  SMTP_REQUIRE_TLS: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;
