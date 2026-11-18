@@ -10,5 +10,6 @@ try {
 }
 
 export default defineConfig({
-  test: { include: ['src/**/*.test.ts'] },
+  // Integration tests create a database per file and run concurrent transactions.
+  test: { include: ['src/**/*.test.ts'], testTimeout: 30_000 },
 });

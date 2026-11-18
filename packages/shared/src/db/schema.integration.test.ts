@@ -342,6 +342,18 @@ describe('exclusion constraints and limit trigger (real Postgres)', () => {
     expect(rows[0]?.local_date).toBe('2026-06-10');
   });
 
+  it('a pending outbox row needs an address; without one it can only be dead', async () => {
+    const insert = (status: string, to: string | null) =>
+      db.pool.query(
+        `INSERT INTO email_outbox (dedupe_key, to_address, template, payload, status, next_attempt_at, created_at)
+         VALUES ($1, $2, 't', '{}', $3, $4, $4)`,
+        [`k-${status}-${to ?? 'null'}`, to, status, CLOCK],
+      );
+    await expect(insert('pending', null)).rejects.toMatchObject({ constraint: 'email_outbox_pending_address_check' });
+    await insert('dead', null);
+    await insert('pending', 'a@example.test');
+  });
+
   it('migrations keep the expected constraints and triggers (nothing silently lost)', async () => {
     const constraints = await db.pool.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint WHERE contype = 'x' ORDER BY conname`,

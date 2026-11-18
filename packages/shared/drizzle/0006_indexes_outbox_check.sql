@@ -1,0 +1,2 @@
+CREATE INDEX "appt_doctor_local_date" ON "appointments" USING btree ("doctor_id","local_date");--> statement-breakpoint
+ALTER TABLE "email_outbox" ADD CONSTRAINT "email_outbox_pending_address_check" CHECK ("email_outbox"."status" <> 'pending' OR "email_outbox"."to_address" IS NOT NULL);

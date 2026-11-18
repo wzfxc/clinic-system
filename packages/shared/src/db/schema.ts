@@ -274,6 +274,8 @@ export const appointments = pgTable(
     index('appt_patient_time').on(t.patientId, t.startsAt.desc()),
     index('appt_hold_expiry').on(t.holdExpiresAt).where(sql`${t.status} = 'held'`),
     index('appt_service').on(t.serviceId),
+    // Day views and the sick-leave sweep read one doctor's local day.
+    index('appt_doctor_local_date').on(t.doctorId, t.localDate),
   ],
 );
 
@@ -363,6 +365,8 @@ export const emailOutbox = pgTable(
   },
   (t) => [
     unique('email_outbox_dedupe_uq').on(t.dedupeKey),
+    // A row that is still to be sent needs somewhere to go; no address means `dead`.
+    check('email_outbox_pending_address_check', sql`${t.status} <> 'pending' OR ${t.toAddress} IS NOT NULL`),
     index('email_outbox_due_idx').on(t.nextAttemptAt).where(sql`${t.status} = 'pending'`),
   ],
 );
