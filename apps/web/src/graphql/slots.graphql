@@ -1,3 +1,57 @@
+query Catalog {
+  clinics {
+    id
+    city
+    name
+    timezone
+    currency
+  }
+  services {
+    id
+    name
+    durationMinutes
+    usesUltrasoundRoom
+  }
+  doctors {
+    id
+    specialty
+  }
+}
+
+query Me {
+  me {
+    userId
+    role
+    clinicId
+    patientId
+    doctorId
+  }
+}
+
+mutation Login($email: String!, $password: String!) {
+  login(email: $email, password: $password) {
+    userId
+    role
+    clinicId
+    patientId
+    doctorId
+  }
+}
+
+mutation Register($input: RegisterInput!) {
+  register(input: $input) {
+    userId
+    role
+    clinicId
+    patientId
+    doctorId
+  }
+}
+
+mutation Logout {
+  logout
+}
+
 query FindFreeSlots($city: String!, $serviceId: Int!) {
   findFreeSlots(city: $city, serviceId: $serviceId) {
     clinicId
@@ -6,6 +60,7 @@ query FindFreeSlots($city: String!, $serviceId: Int!) {
     endAt
     localDate
     localTime
+    utcOffsetMinutes
   }
 }
 
@@ -14,5 +69,216 @@ subscription SlotsChanged($clinicId: Int!) {
     clinicId
     doctorId
     startsAt
+  }
+}
+
+mutation HoldSlot($input: HoldSlotInput!) {
+  holdSlot(input: $input) {
+    id
+    status
+    startsAt
+    endsAt
+    localDate
+    priceMinor
+    currency
+    timeVersion
+    holdExpiresAt
+  }
+}
+
+mutation ConfirmAppointment($appointmentId: Int!, $idempotencyKey: String!) {
+  confirmAppointment(appointmentId: $appointmentId, idempotencyKey: $idempotencyKey) {
+    id
+    status
+    startsAt
+    endsAt
+    localDate
+    priceMinor
+    currency
+    timeVersion
+  }
+}
+
+mutation CancelAppointment($appointmentId: Int!, $reason: String!) {
+  cancelAppointment(appointmentId: $appointmentId, reason: $reason) {
+    id
+    status
+  }
+}
+
+mutation RescheduleAppointment($appointmentId: Int!, $expectedVersion: Int!, $newStartsAt: DateTime!) {
+  rescheduleAppointment(appointmentId: $appointmentId, expectedVersion: $expectedVersion, newStartsAt: $newStartsAt) {
+    id
+    status
+    startsAt
+    endsAt
+    localDate
+    timeVersion
+  }
+}
+
+query MyAppointments($first: Int) {
+  myAppointments(first: $first) {
+    id
+    status
+    startsAt
+    endsAt
+    localDate
+    priceMinor
+    currency
+    timeVersion
+    holdExpiresAt
+    doctor {
+      id
+      specialty
+    }
+    clinic {
+      id
+      city
+      name
+      timezone
+      currency
+    }
+    service {
+      id
+      name
+      durationMinutes
+    }
+  }
+}
+
+query StaffAppointments($filter: AppointmentFilter, $first: Int) {
+  appointments(filter: $filter, first: $first) {
+    id
+    status
+    startsAt
+    endsAt
+    localDate
+    priceMinor
+    currency
+    timeVersion
+    doctor {
+      id
+      specialty
+    }
+    clinic {
+      id
+      city
+      name
+      timezone
+      currency
+    }
+    service {
+      id
+      name
+      durationMinutes
+    }
+    patient {
+      id
+      fullName
+      email
+      phone
+    }
+  }
+}
+
+mutation ChangeAppointmentStatus($appointmentId: Int!, $to: String!) {
+  changeAppointmentStatus(appointmentId: $appointmentId, to: $to) {
+    id
+    status
+  }
+}
+
+mutation MarkSickLeave($doctorId: Int!, $clinicId: Int!, $date: String!) {
+  markSickLeave(doctorId: $doctorId, clinicId: $clinicId, date: $date) {
+    applied
+    cancelledAppointmentIds
+  }
+}
+
+query MyWaitlist {
+  myWaitlistOffers {
+    id
+    entryId
+    appointmentId
+    clinicId
+    doctorId
+    serviceId
+    startsAt
+    endsAt
+    expiresAt
+    status
+  }
+  myWaitlistEntries {
+    id
+    clinicId
+    doctorId
+    serviceId
+    dateFrom
+    dateTo
+    priority
+    status
+  }
+}
+
+mutation JoinWaitlist($input: JoinWaitlistInput!) {
+  joinWaitlist(input: $input)
+}
+
+mutation LeaveWaitlist($entryId: Int!) {
+  leaveWaitlist(entryId: $entryId)
+}
+
+mutation AcceptOffer($offerId: Int!, $idempotencyKey: String!) {
+  acceptOffer(offerId: $offerId, idempotencyKey: $idempotencyKey) {
+    id
+    status
+    startsAt
+    endsAt
+    localDate
+  }
+}
+
+mutation DeclineOffer($offerId: Int!) {
+  declineOffer(offerId: $offerId)
+}
+
+query ManagerReport($fromDate: String, $toDate: String) {
+  managerReport(fromDate: $fromDate, toDate: $toDate) {
+    fromDate
+    toDate
+    totals {
+      scheduledMinutes
+      bookedMinutes
+      loadPercent
+      completed
+      noShow
+      noShowShare
+      cancelled
+      lateCancelled
+      lateCancelShare
+      acceptedOffers
+    }
+    doctors {
+      doctorId
+      clinicId
+      scheduledMinutes
+      bookedMinutes
+      loadPercent
+      completed
+      noShow
+      noShowShare
+      cancelled
+      lateCancelled
+      lateCancelShare
+      acceptedOffers
+    }
+    revenue {
+      serviceId
+      serviceName
+      currency
+      revenueMinor
+      appointments
+    }
   }
 }

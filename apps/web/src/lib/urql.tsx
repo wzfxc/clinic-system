@@ -18,6 +18,7 @@ export function createUrqlClient(baseUrl: string = apiBaseUrl()): Client {
   const wsClient = typeof window === 'undefined' ? null : createWsClient({ url: wsUrl, lazy: true });
   return new Client({
     url: httpUrl,
+    preferGetMethod: false,
     fetchOptions: { credentials: 'include' },
     exchanges: [
       cacheExchange,
