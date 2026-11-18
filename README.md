@@ -1,11 +1,10 @@
-# Clinic network online booking
+# Clinic Network Online Booking
 
-Monorepo (pnpm workspaces): `apps/api` (NestJS + GraphQL), `apps/worker` (BullMQ + sweeper + mail outbox),
-`apps/web` (Next.js, next-intl), `packages/shared` (Drizzle schema, migrations, domain logic, seed, Clock).
-
-> **Honest status (deadline 17:00).** The back end is complete and tested against a real Postgres/Redis.
-> The **web client is only a scaffold** and the **Playwright e2e scenarios were not written**. See
-> [What is not done](#what-is-not-done) before judging the delivery.
+Monorepo (pnpm workspaces):
+- `apps/api`: NestJS + GraphQL code-first (Apollo, DataLoader, `graphql-ws` subscriptions, `/health` and `/ready` REST endpoints)
+- `apps/worker`: NestJS background worker (BullMQ delayed jobs, periodic Postgres sweeper, SMTP mail outbox)
+- `apps/web`: Next.js 15 (App Router), React 19, `urql`, GraphQL Codegen, React Hook Form, Tailwind CSS, `next-intl` (`uk`, `en`, `pl`)
+- `packages/shared`: Drizzle ORM schema and migrations, domain logic, deterministic demo seed, injected `Clock`, Zod env validation
 
 ## Run
 
@@ -14,139 +13,120 @@ cp .env.example .env
 docker compose up --build
 ```
 
-`migrate` and `seed` run as one-shot compose services; no manual steps. Services: `postgres`, `redis`, `mailpit`
-(SMTP catcher, UI on <http://localhost:8025>), `api` (<http://localhost:4000>, `/health`, `/ready`, `/graphql`),
-`worker`, `web` (<http://localhost:3000>).
+`migrate` and `seed` run automatically as one-shot Docker Compose services before `api`, `worker` and `web` start; no other manual steps are required.
 
-The seed creates 3 clinics (Kyiv, Lviv, Warsaw), 40 doctors, 15 services, 20 000 patients and about 147 000
-appointments from 180 days back to 30 days ahead (deterministic). Logins are in
-[docs/analysis/seed-logins.md](docs/analysis/seed-logins.md): password for all accounts is `demo-password`,
-e.g. `manager@clinic.local`, `reception1@clinic.local`, `doctor1@clinic.local`, `patient1@clinic.local`.
+Services started by `docker compose`:
+- `postgres` (PostgreSQL 16 with `btree_gist`)
+- `redis` (Redis 7 for BullMQ triggers)
+- `mailpit` (local SMTP catcher on port `1025`, web UI on <http://localhost:8025>)
+- `api` (<http://localhost:4000/graphql>, <http://localhost:4000/health>, <http://localhost:4000/ready>)
+- `worker` (BullMQ consumers + periodic Postgres sweeper)
+- `web` (<http://localhost:3000>, redirects to `/uk`, `/en`, `/pl`)
 
-## Tests and checks
+### Demo Logins (Seed)
+
+The seed creates 3 clinics (`Kyiv`, `Lviv`, `Warsaw`), 40 doctors, 15 services, 20 000 patients and ~147 000 appointments from 180 days in the past to 30 days ahead. All accounts share the password `demo-password` (see [docs/analysis/seed-logins.md](docs/analysis/seed-logins.md)):
+
+| Role | Email | Scope |
+|------|-------|-------|
+| Manager | `manager@clinic.local` | Network-wide 90-day report |
+| Registrar | `reception1@clinic.local` (Kyiv), `reception2@clinic.local` (Lviv), `reception3@clinic.local` (Warsaw) | Own clinic (day board, check-in, no-show, phone booking, sick leave) |
+| Doctor | `doctor1@clinic.local` … `doctor40@clinic.local` | Own appointments across clinics (`completed`, `no_show`) |
+| Patient | `patient1@clinic.local` … `patient20000@clinic.local` | Online booking, reschedule, cancel, waitlist |
+
+## Tests and Checks
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm codegen        # builds shared, emits schema, regenerates types; CI requires no git diff
-pnpm typecheck
-pnpm lint
-pnpm db:migrate     # needs DATABASE_URL (Postgres)
-pnpm test           # integration tests need Postgres (and Redis for the worker)
-pnpm build
+pnpm codegen                          # builds shared, emits schema, runs GraphQL codegen
+pnpm typecheck                        # TypeScript check across all packages
+pnpm lint                             # ESLint (no explicit any, no uncommented @ts-ignore)
+pnpm db:migrate                       # applies Drizzle SQL migrations
+pnpm test                             # unit + integration tests on real Postgres & Redis
+pnpm build                            # builds shared, api, worker and web
+pnpm --filter @clinic/web test:e2e    # Playwright e2e scenarios
 ```
 
-Integration tests create a throw-away database per test file from `DATABASE_URL` (repo-root `.env` is read when the
-variable is not set). All time-dependent code takes an injected `Clock`; tests substitute it (10-minute hold,
-15-minute step, 24 h / 2 h reminders). `pnpm --filter @clinic/web test:e2e` exists as a script, but there are no
-e2e specs yet.
+Integration tests create an isolated temporary Postgres database per test file from `DATABASE_URL` (reading repo-root `.env` when not set in the environment). All time-dependent rules use the injected `Clock` (`FixedClock` in tests).
 
-## Free-slot grid
+Playwright e2e tests (`apps/web/e2e/booking.spec.ts`) cover:
+1. Selecting a slot → 10-minute hold → confirmation → the slot disappears in a second browser window live via `slotsChanged` without reload.
+2. Hold not confirmed for 10 minutes → the slot returns to the free-slot grid and late confirmation at 10:01 is rejected with `HOLD_EXPIRED`.
+3. Cancelling a confirmed appointment → the first waitlist candidate receives the offer and accepts it.
+4. URL filter state (`city`, `serviceId`, `doctorId`, report dates) surviving reload and browser Back button, clinic timezone display (`America/New_York` browser viewing `Europe/Warsaw`), `uk`/`en`/`pl` locales (currency `₴` / `zł`, dates, plural forms), and form field validation errors.
 
-- Weekly template per doctor per clinic plus date exceptions (`day_off`, `extra_day`); an exception wins over the template.
-- Step is 15 minutes. A visit must fit inside working time and must not touch the break
-  (working segments are `[workStart, breakStart)` and `[breakEnd, workEnd)`).
-- 5 minutes of room preparation are blocked after every visit. Ultrasound services also occupy a clinic-wide room, so
-  two doctors cannot do ultrasound at the same time.
-- Booking window: not earlier than 2 hours and not later than 60 days from now.
-- A slot is busy when `status <> 'cancelled'`, except an **expired checkout hold**, which is free (also exactly at
-  expiry). An expired waitlist offer still blocks until the sweeper handles it (decision R2).
-- `findFreeSlots(city, serviceId)` searches all doctors of the city for 14 days; `managerReport` covers 90 days.
-  Measured on the seed: report about 100-140 ms, free slots about 140-225 ms (limit 300 ms; asserted in
-  `apps/api/src/reports/report.acceptance.test.ts`).
+## Free-Slot Grid Calculation
 
-## Appointment statuses
+- **Schedule:** Each doctor has a weekly template per clinic (`weekday 1..7`, `work_start`, `work_end`, optional `break_start` / `break_end`, `valid_during`) and date exceptions (`day_off` or `extra_day`). An exception overrides the weekly template for that `(doctor_id, clinic_id, on_date)`.
+- **Working segments:** Each active day is split into 1 or 2 working segments in UTC (`[workStart, breakStart)` and `[breakEnd, workEnd)`). A visit of `durationMinutes` must fit completely inside a single working segment without touching the break.
+- **Grid step and preparation buffer:** Candidate start times step by **15 minutes** from the start of each working segment. Every visit occupies `[starts_at, ends_at + 5 minutes)` (`blocked_until = ends_at + 5 min` room preparation buffer).
+- **Ultrasound room:** If a service has `uses_ultrasound_room = true`, the slot must also be free of any other ultrasound booking in that clinic during `[starts_at, blocked_until)`.
+- **Booking window:** A slot must start at least **2 hours** in the future and no later than **60 calendar days** ahead in the clinic's time zone.
+- **Occupancy (Decision R2):** A row occupies its interval when `status <> 'cancelled'`, **except** an expired checkout hold (`status = 'held' AND hold_kind = 'checkout' AND hold_expires_at <= clock_now`), which is immediately visible as free even before the background sweeper cancels the row. An expired `waitlist_offer` hold stays blocked until the waitlist sweeper passes it to the next candidate or frees it.
+- **14-day city search and 90-day report performance:** `findFreeSlots(city, serviceId)` and `managerReport` execute in ~100–225 ms on the ~147k-row seed (asserted under 300 ms in `apps/api/src/reports/report.acceptance.test.ts`).
 
-`held`, `booked`, `checked_in`, `completed`, `no_show`, `cancelled`.
+## Appointment Statuses
+
+Statuses: `held`, `booked`, `checked_in`, `completed`, `no_show`, `cancelled`.
 
 | From | To | Who | Condition |
 |------|----|-----|-----------|
-| (none) | `held` | patient (checkout hold, 10 min) or system (waitlist offer) | slot free, limits ok |
-| `held` | `booked` | owning patient | before `hold_expires_at`; a late confirm is rejected |
-| `held` | `cancelled` | patient, system | user cancel, `hold_expired`, `checkout_replaced`, `offer_*` |
-| `booked` | `cancelled` | owning patient, receptionist of the clinic | before the start; late (<= 24 h) is a strike |
-| `booked` | `checked_in` | receptionist of the clinic | on the day of the visit |
-| `booked` | `no_show` | receptionist or doctor | after the start; strike |
-| `checked_in` | `no_show` | doctor | after the start |
-| `checked_in` | `completed` | doctor of the visit | after the start |
-| `held`, `booked`, `checked_in` | `cancelled` | system | sick leave, no strike |
+| *(none)* | `held` | Patient (`checkout`, 10 min) or Registrar (`front_desk`, 10 min) or System (`waitlist_offer`, 15 min) | Slot free, within 2 h–60 d window, patient limits satisfied (online also checks 30-day block) |
+| `held` | `booked` | Owning patient or clinic registrar | `hold_expires_at > clock_now` (idempotent by `idempotencyKey`) |
+| `held` | `cancelled` | Owning patient, clinic registrar, or system | User cancel, `hold_expired`, `checkout_replaced`, `offer_expired`, `offer_declined`, `sick_leave` |
+| `booked` | `cancelled` | Owning patient or clinic registrar | Before `starts_at`; if `starts_at - now <= 24 h`, recorded as a late-cancel strike |
+| `booked` | `checked_in` | Clinic registrar | On the clinic-local day of the visit |
+| `booked` | `no_show` | Clinic registrar or doctor of the visit | After `starts_at`; recorded as a strike |
+| `checked_in` | `no_show` | Doctor of the visit | After `starts_at`; recorded as a strike |
+| `checked_in` | `completed` | Doctor of the visit | After `starts_at` |
+| `held`, `booked`, `checked_in` | `cancelled` | System (registrar marks sick leave) | Future visits on that clinic day; `cancel_reason = 'sick_leave'`, never a strike |
 
-`checked_in` cannot be cancelled by users. Reschedule is an in-place update of a `booked` visit with a `time_version`
-token (stale token is `CONFLICT`). Other-patient or foreign-clinic objects answer `NOT_FOUND`/`FORBIDDEN` as in
-`docs/analysis/06-permissions-graphql.md`. History is append-only (`appointment_events`) and written by triggers.
+- `checked_in` cannot be cancelled by a patient or registrar (only by a doctor's sick leave).
+- **Reschedule** updates a `booked` appointment in place with optimistic concurrency (`expectedVersion` vs `time_version`; mismatch returns `CONFLICT`). Rescheduling within 24 hours of the old start is recorded as a late-reschedule strike.
+- **Online booking block:** 2 or more strikes (`no_show`, late cancel, late reschedule) in the last 90 days block online booking (`channel = 'online'`) for 30 days from the last strike. A registrar (`channel = 'front_desk'`) can still book for the patient.
 
-Online booking is blocked for 30 days after the last of two or more strikes (no-show, late cancel, late reschedule)
-inside a 90-day window (decision D5). A patient has at most 3 future visits, and one visit per doctor per local day.
+## Postgres vs Redis and Recovery After Redis Loss
 
-## Postgres vs Redis
+- **Postgres is the sole source of truth.** Every future obligation is persisted in Postgres inside the same transaction as the state change:
+  - Checkout hold expiry: `appointments.hold_expires_at` (`hold_kind = 'checkout'`)
+  - Waitlist offer expiry: `waitlist_offers.expires_at` (`status = 'pending'`)
+  - Visit reminders (24 h and 2 h): `reminders` table (`due_at`, `time_version`, `enqueued_at`, `cancelled_at`, `skipped_at`)
+  - Outgoing emails: `email_outbox` table (`dedupe_key` unique, `status`, `attempts`, `next_attempt_at`, `leased_until`)
+- **Redis / BullMQ is only an accelerator.** Deterministic job IDs (`reminder-<kind>-<apptId>-v<timeVersion>`, `hold-expiry-<apptId>-<epoch>`, `email-send-<outboxId>-a<attempts>`) prevent duplicate jobs.
+- **Recovery after `redis-cli FLUSHALL` or Redis restart:**
+  1. Each `worker` instance writes an epoch key in Redis (`clinic:worker:epoch`, `SET ... NX`) and checks it periodically. If Redis is wiped, the epoch key disappears and the worker immediately re-seeds upcoming reminders, hold expiries, and pending emails from Postgres into BullMQ.
+  2. Regardless of Redis state, the periodic **sweeper** (`sweepOnce` in `apps/worker/src/sweeper.ts`) polls Postgres using `FOR UPDATE SKIP LOCKED` and leases (`leased_until`), releasing expired checkout holds, advancing overdue waitlist offers, queueing due reminders into `email_outbox`, and draining `email_outbox` to SMTP.
+  3. Multiple worker copies run concurrently without duplicate execution or duplicate emails (`apps/worker/src/recovery.integration.test.ts`).
 
-Postgres is the source of truth for everything. Anything that must happen in the future (hold expiry, reminders,
-waitlist offer expiry, outgoing mail) is written to Postgres **in the same transaction as the business change**
-(`hold_expires_at`, `reminders`, `email_outbox`, offer rows). Redis/BullMQ only accelerates it (delayed jobs with
-deterministic job ids, pub/sub for `slotsChanged`).
+## Time Zones and DST
 
-Recovery after losing Redis: a periodic **sweeper** in the worker polls Postgres (`FOR UPDATE SKIP LOCKED`, batches),
-frees expired holds, sends due reminders and outbox mail, and re-creates queue jobs (an epoch check notices a flushed
-Redis). Tests: `FLUSHALL` then worker restart, several worker copies at once, delayed job plus sweeper without
-duplicate mail (`apps/worker/src/recovery.integration.test.ts`). A lost Redis costs at most one sweep interval of delay.
-Waitlist offer expiry currently relies on the sweeper only.
+- All timestamps in Postgres are `timestamptz` (UTC). Each clinic stores its IANA time zone (`Europe/Kyiv`, `Europe/Warsaw`) and currency (`UAH`, `PLN`).
+- Clinic-local calendar dates (`local_date`) and wall-clock times (`localTime`) are computed in the clinic's IANA zone via Luxon and enforced by a Postgres trigger (`appt_set_local_date`).
+- Working segments are converted from clinic-local wall-clock time to UTC per calendar day, so visits across spring-forward and fall-back DST nights keep their exact local clinic hour while 24 h / 2 h reminders fire 24 / 2 real hours before `starts_at` (`apps/worker/src/reminders.integration.test.ts`).
 
-## Time zones and DST
+## Indexes and Exclusion Constraints
 
-Instants are stored as UTC `timestamptz`; every clinic has an IANA zone and a currency. Local dates and times are
-computed in the clinic zone (Luxon), `local_date` is maintained by a trigger and cannot be written by hand. Working
-segments are built per local date, so a visit on a DST night keeps its local wall-clock time; 24 h reminders are
-exactly 24 real hours before the start, and the mail shows local time (Warsaw DST test in
-`apps/worker/src/reminders.integration.test.ts`).
+Defined in `packages/shared/drizzle/0001_schema.sql` – `0009_loose_robin_chapel.sql`:
+- `appt_doctor_no_overlap`: `EXCLUDE USING gist (doctor_id WITH =, tstzrange(starts_at, blocked_until, '[)') WITH &&) WHERE (status <> 'cancelled')` — prevents double-booking a doctor (including the 5-minute preparation buffer).
+- `appt_ultrasound_no_overlap`: `EXCLUDE USING gist (clinic_id WITH =, tstzrange(starts_at, blocked_until, '[)') WITH &&) WHERE (uses_ultrasound_room AND status <> 'cancelled')` — prevents two doctors in the same clinic from using the ultrasound room at overlapping times.
+- `appt_patient_no_overlap`: `EXCLUDE USING gist (patient_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&) WHERE (status <> 'cancelled')` — prevents a patient from holding two overlapping appointments.
+- `appt_patient_doctor_day_uq`: `UNIQUE (patient_id, doctor_id, local_date) WHERE status <> 'cancelled'` — at most one visit per patient to the same doctor per clinic-local day.
+- `schedule_templates_no_overlap`: `EXCLUDE USING gist (doctor_id WITH =, weekday WITH =, valid_during WITH &&)` — prevents overlapping template periods.
+- Row triggers on `appointments`:
+  - `appointments_a_local_date`: computes `local_date = (starts_at AT TIME ZONE clinic.timezone)::date`.
+  - `appointments_b_patient_limit`: locks the patient row (`FOR UPDATE`) and enforces at most 3 future active appointments using `app_clock_now()`.
+  - `appointments_c_status_transition`: enforces allowed `(from_status, to_status)` transitions.
+  - `appointments_history` & `appointment_events_append_only`: writes append-only audit/strike events and blocks updates/deletes on `appointment_events`.
+  - `appointments_z_notify`: sends `pg_notify('appointments_changed', ...)` post-commit to drive `slotsChanged` WebSocket subscriptions.
+- Covering partial indexes for grid and report queries: `appt_doctor_time`, `appt_uzi_time`, `appt_report`, `appointment_events_strike_idx`, `waitlist_entries_queue_idx`, `waitlist_offers_due_idx`.
 
-## Indexes and exclusion constraints
+## Accepted Decisions
 
-All in `packages/shared/drizzle/*.sql`:
-
-- `EXCLUDE USING gist` on doctor + time range for non-cancelled rows (no double booking, 20 parallel holds: one wins).
-- A second exclusion on clinic room + time range for ultrasound services.
-- A third exclusion on patient + time range (a patient cannot be in two places). The doctor and room exclusions
-  cover the visit plus the preparation buffer (`blocked_until`).
-- An exclusion on weekly templates (a doctor's template periods in the same weekday cannot overlap).
-- `UNIQUE` on patient + doctor + local day for non-cancelled rows.
-- Triggers: limit of 3 future visits per patient (needs `app.clock_now`, otherwise `CL003`), status transition rules,
-  append-only history, `local_date`.
-- `schedule_exceptions`: `UNIQUE (doctor_id, clinic_id, on_date)` with a composite FK to `doctor_clinics`.
-- Supporting indexes for the outbox, reminders, sweeper scans and the report. No extra index was needed for the
-  report (EXPLAIN ANALYZE on the seed).
-
-## Accepted decisions
-
-Full text (with reasoning) is in [docs/analysis/00-decisions.md](docs/analysis/00-decisions.md). Short list:
-
-- D1 `no_show` occupies the slot and counts for the once-per-day rule.
-- D2 A new checkout hold cancels the patient's own previous checkout holds.
-- D3 Exceptions always belong to a clinic; one exception per doctor, clinic and date.
-- D4/R5 Waitlist cascade: pages of 20, SAVEPOINT per candidate; DB constraints decide eligibility.
-- D5 Block, permissions, sick leave: see above; sick leave serialises with booking through `pg_advisory_xact_lock`
-  on the doctor.
-- R1 Late cancel means start minus 24 h or less. R2 see grid. R3/R4 exception kinds and `app.clock_now` everywhere.
-- Stage 9: report window is the 90 complete UTC dates before the Clock's today; revenue per currency, never summed.
-
-## What is not done
-
-Be aware of these before using or grading the project:
-
-1. **Web UI is a scaffold.** Present: Next.js + next-intl (`uk`/`en`/`pl`, messages, plural forms), urql client,
-   generated GraphQL types, `slotsChanged` subscription hook, money/date formatting helpers with tests, a placeholder
-   home page. **Missing:** slot picker, booking/confirm flow with a 10-minute countdown, login, receptionist and doctor
-   screens, waitlist offer screen, manager report page, forms with field-level errors, keyboard-only walkthrough.
-2. **Playwright e2e is not written** (the three required scenarios: live slot removal in another browser, 10-minute
-   hold expiry, waitlist offer accepted). The behaviours behind them are covered by API/worker integration tests, not
-   by browser tests.
-3. **`docker compose up` and the `compose-smoke` CI job were not run locally** by the author of this file (no Docker
-   access in the working environment). Install, build and codegen were verified in a clean clone.
-4. Waitlist gaps: no `slotsChanged` publish after the commit that frees a slot; offer expiry only via the sweeper (no
-   delayed job); no pagination, serialization-failure (`40001`) or `FLUSHALL` tests for the waitlist; no auto-close of
-   a waitlist entry on a normal booking; no limit of 5 entries per patient; join/leave exist only as GraphQL mutations.
-5. Auth hardening gaps: login throttling is per account only (no per-IP counter, so lockout can be used to lock out
-   someone else's account, and check-then-record is not atomic).
-6. Subscriptions: only `slotsChanged` exists; `myAppointmentChanged`, `myOfferChanged`, `clinicBoardChanged` and
-   `doctorDayChanged` are not implemented; the query complexity limit is not applied over WebSocket.
-7. The GraphQL API has no mutation for a receptionist to create a booking on behalf of a patient (only the patient
-   hold/confirm flow, cancel, reschedule, status changes, sick leave and the waitlist mutations).
-8. Reminders "in the app" (as opposed to by mail) have no UI.
+Full rationale is documented in [docs/analysis/00-decisions.md](docs/analysis/00-decisions.md):
+- **D1:** `no_show` is treated as non-cancelled (`status <> 'cancelled'`), so it remains in history as having occupied its past slot and counts toward the once-per-day per-doctor rule.
+- **D2:** Placing a new checkout hold automatically cancels any previous checkout holds of the same patient (`checkout_replaced` or `hold_expired`, never a strike).
+- **D3 / R3:** Schedule exceptions always belong to a `(doctor_id, clinic_id, on_date)` triple (`UNIQUE`), with kinds `day_off` and `extra_day`.
+- **D4 / R5:** Waitlist cascade scans eligible candidates in pages of 20 inside the transaction that freed the slot, using a `SAVEPOINT` per candidate so DB constraint refusals (3-future limit, overlap, once-per-day) cleanly skip to the next candidate.
+- **D5:** Online-booking block is computed live from `appointment_events` (`is_strike = true` within `[now - 90 days, now]`), blocking online booking for 30 days from the latest strike. Sick leave serializes with booking via `pg_advisory_xact_lock` on the doctor, cancels the day's unstarted visits without strikes, queues one email per confirmed visit, and raises affected patients to priority 1 on the waitlist for the next 14 days.
+- **R1 / R2 / R4:** Late cancel threshold is `<= 24 hours` before start; expired checkout holds are immediately free in grid reads and reaped on write; all triggers read transaction-local `app.clock_now`.
+- **Known trade-offs:** Login throttling is tracked per account email in Postgres (`login_attempts`); WebSocket subscriptions implement `slotsChanged(clinicId)` (clients refetch their scoped queries on notification); waitlist offer expiry is driven by the periodic Postgres sweeper rather than a dedicated BullMQ timer.
