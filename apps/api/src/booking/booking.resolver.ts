@@ -167,7 +167,7 @@ export class BookingResolver {
     const actor = requireAuthActor(ctx);
     if (actor.role === 'patient') throw graphQLError(ERROR_CODES.FORBIDDEN, 'staff only');
     if (!isStaffStatus(to)) throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'unknown target status');
-    return ctx.booking.changeStatus({ appointmentId, to, actor });
+    return asNotFoundWhenForeign(() => ctx.booking.changeStatus({ appointmentId, to, actor }));
   }
 
   @Mutation(() => SickLeaveResultModel, { description: 'Registrar marks a doctor sick for a clinic day.' })

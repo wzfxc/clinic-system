@@ -109,6 +109,8 @@ export class AuthResolver {
     @Args('password', { type: () => String }) password: string,
     @Context() ctx: RequestContext,
   ): Promise<MeModel> {
+    // Capped before scrypt so an oversized password cannot make the server hash megabytes of input.
+    if (password.length > MAX_PASSWORD_LENGTH) throw validationError('password', `length must be at most ${MAX_PASSWORD_LENGTH}`);
     const normalized = email.trim().toLowerCase();
     const throttle = new LoginThrottle(ctx.pool, ctx.clock);
     if (await throttle.isLocked(normalized)) {

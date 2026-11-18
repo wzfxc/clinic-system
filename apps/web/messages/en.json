@@ -1,0 +1,8 @@
+{
+  "Home": {
+    "title": "Clinic",
+    "subtitle": "Book a doctor online",
+    "appointments": "{count, plural, one {# appointment} other {# appointments}}"
+  },
+  "Common": { "signIn": "Sign in", "book": "Book" }
+}

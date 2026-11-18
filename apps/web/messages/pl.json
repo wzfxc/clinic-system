@@ -1,0 +1,8 @@
+{
+  "Home": {
+    "title": "Klinika",
+    "subtitle": "Rezerwacja wizyty online",
+    "appointments": "{count, plural, one {# wizyta} few {# wizyty} many {# wizyt} other {# wizyty}}"
+  },
+  "Common": { "signIn": "Zaloguj się", "book": "Umów wizytę" }
+}

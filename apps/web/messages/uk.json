@@ -1,0 +1,8 @@
+{
+  "Home": {
+    "title": "Клініка",
+    "subtitle": "Онлайн-запис до лікаря",
+    "appointments": "{count, plural, one {# запис} few {# записи} many {# записів} other {# запису}}"
+  },
+  "Common": { "signIn": "Увійти", "book": "Записатися" }
+}

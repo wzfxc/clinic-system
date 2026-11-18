@@ -81,6 +81,23 @@ describe('login timing', () => {
   });
 });
 
+describe('password length cap', () => {
+  const OVERSIZED = 'a'.repeat(129);
+
+  it('rejects an oversized login password before any scrypt work', async () => {
+    const res = await login('user@example.test', OVERSIZED);
+    expect(codeOf(res)).toBe('VALIDATION_FAILED');
+    expect(password.verifyPassword).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized registration password', async () => {
+    const res = await gql(
+      `mutation { register(input: {email: "big@example.test", password: "${OVERSIZED}", fullName: "B"}) { role } }`,
+    );
+    expect(codeOf(res)).toBe('VALIDATION_FAILED');
+  });
+});
+
 describe('operation shape limits', () => {
   it('rejects more than one login or register root field, aliases included', async () => {
     const res = await gql(

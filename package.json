@@ -11,7 +11,7 @@
     "typecheck": "pnpm build:shared && pnpm -r --parallel typecheck",
     "lint": "eslint .",
     "test": "pnpm build:shared && pnpm -r test",
-    "codegen": "pnpm --filter @clinic/api schema:emit && pnpm --filter @clinic/shared codegen",
+    "codegen": "pnpm --filter @clinic/api schema:emit && pnpm --filter @clinic/shared codegen && pnpm --filter @clinic/web codegen",
     "db:generate": "pnpm --filter @clinic/shared db:generate",
     "db:migrate": "pnpm --filter @clinic/shared db:migrate"
   },

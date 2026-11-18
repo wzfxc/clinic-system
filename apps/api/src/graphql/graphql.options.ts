@@ -19,7 +19,7 @@ export interface GraphqlOptionsDeps {
 }
 
 interface WsRequestLike {
-  headers: { cookie?: string | undefined };
+  headers: { cookie?: string | undefined; origin?: string | undefined };
 }
 
 interface HttpOrWsContext {
@@ -51,6 +51,36 @@ function checkWsOperation(query: string | undefined): readonly GraphQLError[] | 
   }
 }
 
+/** Dev default when ALLOWED_ORIGINS is unset; production deployments must list their web origin explicitly. */
+const DEV_DEFAULT_ORIGINS = 'http://localhost:3000';
+
+export function parseAllowedOrigins(raw: string | undefined): readonly string[] {
+  return (raw ?? DEV_DEFAULT_ORIGINS)
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+}
+
+/** A browser always sends Origin, so it must be allowlisted. A missing Origin is accepted only outside production (non-browser clients). */
+export function isAllowedWsOrigin(origin: string | undefined, production: boolean, allowed: readonly string[]): boolean {
+  if (origin === undefined) return !production;
+  return allowed.includes(origin);
+}
+
+/** connection_init: bad Origin or no valid session means no connection (closes with 4403). */
+export function createWsOnConnect(
+  deps: GraphqlOptionsDeps,
+  allowedOrigins: readonly string[],
+): (ctx: { extra: unknown }) => Promise<boolean> {
+  return async (ctx) => {
+    const request = upgradeRequest(ctx);
+    if (!isAllowedWsOrigin(request.headers.origin, deps.production, allowedOrigins)) return false;
+    const sessions = new SessionStore(deps.pool, deps.clock);
+    const actor = await sessions.resolveActor(readSessionToken(request.headers.cookie));
+    return actor.role !== 'anon';
+  };
+}
+
 export function buildGraphqlOptions(deps: GraphqlOptionsDeps): ApolloDriverConfig {
   return {
     driver: ApolloDriver,
@@ -62,12 +92,7 @@ export function buildGraphqlOptions(deps: GraphqlOptionsDeps): ApolloDriverConfi
     plugins: [createLimitsPlugin()],
     subscriptions: {
       'graphql-ws': {
-        // connection_init: no valid session, no connection (closes with 4403).
-        onConnect: async (ctx: { extra: unknown }) => {
-          const sessions = new SessionStore(deps.pool, deps.clock);
-          const actor = await sessions.resolveActor(readSessionToken(upgradeRequest(ctx).headers.cookie));
-          return actor.role !== 'anon';
-        },
+        onConnect: createWsOnConnect(deps, parseAllowedOrigins(process.env['ALLOWED_ORIGINS'])),
         onSubscribe: (_ctx: unknown, _id: string, payload: { query?: string }) => checkWsOperation(payload.query),
       },
     },

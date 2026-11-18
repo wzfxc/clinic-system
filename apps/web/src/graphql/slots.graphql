@@ -1,0 +1,18 @@
+query FindFreeSlots($city: String!, $serviceId: Int!) {
+  findFreeSlots(city: $city, serviceId: $serviceId) {
+    clinicId
+    doctorId
+    startAt
+    endAt
+    localDate
+    localTime
+  }
+}
+
+subscription SlotsChanged($clinicId: Int!) {
+  slotsChanged(clinicId: $clinicId) {
+    clinicId
+    doctorId
+    startsAt
+  }
+}
