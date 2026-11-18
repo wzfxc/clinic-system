@@ -4,9 +4,12 @@
  */
 import { Kind, GraphQLError, type DocumentNode, type FragmentDefinitionNode, type SelectionSetNode } from 'graphql';
 import type { ApolloServerPlugin } from '@apollo/server';
+import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { ERROR_CODES } from '@clinic/shared';
 
 export const MAX_QUERY_DEPTH = 10;
+/** Every field costs 1; the budget bounds total breadth (aliases, repeated fields, wide selections). */
+export const MAX_QUERY_COMPLEXITY = 500;
 /** Upper bound on selections visited while expanding fragments, so repeated spreads cannot blow up. */
 const MAX_SELECTION_VISITS = 10_000;
 
@@ -49,9 +52,19 @@ export function createLimitsPlugin(): ApolloServerPlugin {
   return {
     async requestDidStart() {
       return {
-        async didResolveOperation({ document }) {
+        async didResolveOperation({ document, schema, request, operationName }) {
           if (queryDepth(document) > MAX_QUERY_DEPTH) {
             throw new GraphQLError('Query is too deep', { extensions: { code: ERROR_CODES.QUERY_TOO_DEEP } });
+          }
+          const complexity = getComplexity({
+            schema,
+            query: document,
+            variables: request.variables ?? {},
+            ...(operationName ? { operationName } : {}),
+            estimators: [simpleEstimator({ defaultComplexity: 1 })],
+          });
+          if (complexity > MAX_QUERY_COMPLEXITY) {
+            throw new GraphQLError('Query is too complex', { extensions: { code: ERROR_CODES.QUERY_TOO_COMPLEX } });
           }
         },
       };

@@ -173,6 +173,15 @@ describe('acceptance 16: limits and fixed SQL count', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('a wide query over the complexity budget is rejected with QUERY_TOO_COMPLEX and runs no SQL', async () => {
+    const spy = vi.spyOn(db.pool, 'query');
+    const wide = `{ __type(name: "Query") { ${'fields { name } '.repeat(300)} } }`;
+    expect(codeOf(await gql(wide))).toBe('QUERY_TOO_COMPLEX');
+    expect(spy).not.toHaveBeenCalled();
+    const narrow = `{ __type(name: "Query") { ${'fields { name } '.repeat(50)} } }`;
+    expect((await gql(narrow)).errors).toBeUndefined();
+  });
+
   it('16.2 depth 10 is accepted and depth 11 is rejected', async () => {
     const ten = await gql(nestedOfType(8));
     expect(ten.errors).toBeUndefined();
