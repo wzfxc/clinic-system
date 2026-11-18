@@ -42,6 +42,10 @@ export const ERROR_CODES = {
   ALREADY_ON_WAITLIST: 'ALREADY_ON_WAITLIST',
   OFFER_NOT_FOUND: 'OFFER_NOT_FOUND',
   OFFER_EXPIRED: 'OFFER_EXPIRED',
+
+  // Database fallback (unique and foreign-key violations not caught by app checks)
+  ALREADY_EXISTS: 'ALREADY_EXISTS',
+  INVALID_REFERENCE: 'INVALID_REFERENCE',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

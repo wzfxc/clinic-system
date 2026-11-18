@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ERROR_CODES, type ErrorCode } from './errors.js';
 
 const UPPER_SNAKE = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
-const REGISTERED_CODE_COUNT = 32;
+const REGISTERED_CODE_COUNT = 34;
 
 describe('error code registry', () => {
   it('uses UPPER_SNAKE format for every code', () => {
