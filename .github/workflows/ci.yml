@@ -47,3 +47,22 @@ jobs:
       - run: pnpm build
       - name: Validate compose file
         run: docker compose config -q
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack and wait for healthy services
+        run: docker compose up --build --wait
+      - name: Smoke checks
+        run: |
+          curl --fail --silent --show-error http://localhost:4000/health
+          curl --fail --silent --show-error http://localhost:4000/ready
+          curl --fail --silent --show-error --output /dev/null http://localhost:3000/
+          curl --fail --silent --show-error --output /dev/null http://localhost:8025/
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
