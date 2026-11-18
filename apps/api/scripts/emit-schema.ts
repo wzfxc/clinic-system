@@ -8,6 +8,8 @@ import { AuthResolver } from '../src/auth/auth.resolver.js';
 import { AppointmentResolver } from '../src/appointments/appointment.resolver.js';
 import { BookingResolver } from '../src/booking/booking.resolver.js';
 import { SlotsResolver } from '../src/subscriptions/slots.resolver.js';
+import { FreeSlotsResolver } from '../src/slots/free-slots.resolver.js';
+import { ReportResolver } from '../src/reports/report.resolver.js';
 
 /**
  * Prints the code-first schema without starting a server or connecting to anything; the input for graphql-codegen.
@@ -16,7 +18,7 @@ import { SlotsResolver } from '../src/subscriptions/slots.resolver.js';
 async function main(): Promise<void> {
   const app = await NestFactory.create(GraphQLSchemaBuilderModule, { logger: false });
   await app.init();
-  const schema = await app.get(GraphQLSchemaFactory).create([AuthResolver, AppointmentResolver, BookingResolver, SlotsResolver]);
+  const schema = await app.get(GraphQLSchemaFactory).create([AuthResolver, AppointmentResolver, BookingResolver, SlotsResolver, FreeSlotsResolver, ReportResolver]);
   const target = path.resolve(process.cwd(), '../../packages/shared/schema.graphql');
   writeFileSync(target, `${printSchema(schema)}\n`, 'utf8');
   await app.close();

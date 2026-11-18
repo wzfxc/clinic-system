@@ -38,6 +38,17 @@ export type AppointmentFilter = {
   patientId?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export type CityFreeSlot = {
+  __typename?: 'CityFreeSlot';
+  clinicId: Scalars['Int']['output'];
+  doctorId: Scalars['Int']['output'];
+  endAt: Scalars['DateTime']['output'];
+  localDate: Scalars['String']['output'];
+  localTime: Scalars['String']['output'];
+  startAt: Scalars['DateTime']['output'];
+  utcOffsetMinutes: Scalars['Int']['output'];
+};
+
 export type Clinic = {
   __typename?: 'Clinic';
   city: Scalars['String']['output'];
@@ -51,6 +62,26 @@ export type Doctor = {
   __typename?: 'Doctor';
   id: Scalars['Int']['output'];
   specialty: Scalars['String']['output'];
+};
+
+export type DoctorReport = {
+  __typename?: 'DoctorReport';
+  acceptedOffers: Scalars['Int']['output'];
+  bookedMinutes: Scalars['Int']['output'];
+  /** User-side cancellations (system reasons excluded). */
+  cancelled: Scalars['Int']['output'];
+  clinicId: Scalars['Int']['output'];
+  completed: Scalars['Int']['output'];
+  doctorId: Scalars['Int']['output'];
+  /** Late cancellations (24 h or less before start) over cancellations, 0 to 1. */
+  lateCancelShare: Scalars['Float']['output'];
+  lateCancelled: Scalars['Int']['output'];
+  /** Booked minutes over scheduled minutes, 0 to 100. */
+  loadPercent: Scalars['Float']['output'];
+  noShow: Scalars['Int']['output'];
+  /** no_show / (completed + no_show), 0 to 1. */
+  noShowShare: Scalars['Float']['output'];
+  scheduledMinutes: Scalars['Int']['output'];
 };
 
 export type HoldSlotInput = {
@@ -178,6 +209,10 @@ export type Query = {
   appointment?: Maybe<Appointment>;
   /** Appointments visible to the actor, filtered within that scope. */
   appointments: Array<Appointment>;
+  /** Free slots of a service across the doctors of a city for the next 14 days (clinic-local grid, R2 visibility). */
+  findFreeSlots: Array<CityFreeSlot>;
+  /** Manager report over the 90 complete days before today (Clock, UTC date). */
+  managerReport: Report;
   /** The signed-in account. */
   me: Me;
   /** The signed-in patient's own appointments. */
@@ -196,6 +231,12 @@ export type QueryAppointmentsArgs = {
 };
 
 
+export type QueryFindFreeSlotsArgs = {
+  city: Scalars['String']['input'];
+  serviceId: Scalars['Int']['input'];
+};
+
+
 export type QueryMyAppointmentsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -207,12 +248,49 @@ export type RegisterInput = {
   phone?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type Report = {
+  __typename?: 'Report';
+  doctors: Array<DoctorReport>;
+  fromDate: Scalars['String']['output'];
+  revenue: Array<ServiceRevenue>;
+  toDate: Scalars['String']['output'];
+  totals: ReportMetrics;
+};
+
+export type ReportMetrics = {
+  __typename?: 'ReportMetrics';
+  acceptedOffers: Scalars['Int']['output'];
+  bookedMinutes: Scalars['Int']['output'];
+  /** User-side cancellations (system reasons excluded). */
+  cancelled: Scalars['Int']['output'];
+  completed: Scalars['Int']['output'];
+  /** Late cancellations (24 h or less before start) over cancellations, 0 to 1. */
+  lateCancelShare: Scalars['Float']['output'];
+  lateCancelled: Scalars['Int']['output'];
+  /** Booked minutes over scheduled minutes, 0 to 100. */
+  loadPercent: Scalars['Float']['output'];
+  noShow: Scalars['Int']['output'];
+  /** no_show / (completed + no_show), 0 to 1. */
+  noShowShare: Scalars['Float']['output'];
+  scheduledMinutes: Scalars['Int']['output'];
+};
+
 export type Service = {
   __typename?: 'Service';
   durationMinutes: Scalars['Int']['output'];
   id: Scalars['Int']['output'];
   name: Scalars['String']['output'];
   usesUltrasoundRoom: Scalars['Boolean']['output'];
+};
+
+export type ServiceRevenue = {
+  __typename?: 'ServiceRevenue';
+  appointments: Scalars['Int']['output'];
+  currency: Scalars['String']['output'];
+  /** Minor currency units (kopecks, groszy) of completed appointments. */
+  revenueMinor: Scalars['Float']['output'];
+  serviceId: Scalars['Int']['output'];
+  serviceName: Scalars['String']['output'];
 };
 
 export type SickLeavePayload = {

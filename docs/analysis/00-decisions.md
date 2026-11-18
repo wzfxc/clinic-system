@@ -98,3 +98,9 @@
 - Offers cancel with reasons `offer_expired`/`offer_declined`, which never count as strikes.
 - Expiry is driven by the Postgres sweeper only; Redis loss costs one sweep interval.
 - Sick leave creates/raises entries to priority 1 (day+1..day+14, capped at 60-day window).
+
+## Stage 9 decisions (seed, report, speed)
+- Seed bulk load: the three appointment row triggers (local_date, patient limit, history) are disabled and exclusion/unique/secondary indexes dropped and rebuilt inside the seed transaction; the seed supplies `local_date`, keeps at most 3 future per patient by construction and writes `created`/`cancelled`/`no_show` events itself. Re-adding the constraints validates every row.
+- `managerReport` window: the 90 complete UTC dates before the Clock's today. Load % = non-cancelled minutes / scheduled minutes (templates minus day-offs plus extra days, breaks excluded). No-show share = no_show / (completed + no_show). Late-cancel share = late `cancelled` events (R1) / user-side cancellations (sick_leave, checkout_replaced, hold_expired, offer_* excluded). Revenue = completed appointments, per service and currency (UAH and PLN are never summed). Manager only: others FORBIDDEN, anonymous UNAUTHENTICATED.
+- `findFreeSlots(city, serviceId)`: all clinics of the city offering the service, 14 days from the Clock, via the existing `loadFreeSlots`; any signed-in non-manager.
+- No new index was needed: EXPLAIN ANALYZE on the seed gives about 74 ms (doctor report) and 20 ms (revenue).

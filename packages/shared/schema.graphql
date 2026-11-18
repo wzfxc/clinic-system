@@ -61,6 +61,82 @@ type SlotsChanged {
   startsAt: DateTime!
 }
 
+type CityFreeSlot {
+  clinicId: Int!
+  doctorId: Int!
+  startAt: DateTime!
+  endAt: DateTime!
+  localDate: String!
+  localTime: String!
+  utcOffsetMinutes: Int!
+}
+
+type ReportMetrics {
+  scheduledMinutes: Int!
+  bookedMinutes: Int!
+
+  """Booked minutes over scheduled minutes, 0 to 100."""
+  loadPercent: Float!
+  completed: Int!
+  noShow: Int!
+
+  """no_show / (completed + no_show), 0 to 1."""
+  noShowShare: Float!
+
+  """User-side cancellations (system reasons excluded)."""
+  cancelled: Int!
+  lateCancelled: Int!
+
+  """
+  Late cancellations (24 h or less before start) over cancellations, 0 to 1.
+  """
+  lateCancelShare: Float!
+  acceptedOffers: Int!
+}
+
+type DoctorReport {
+  scheduledMinutes: Int!
+  bookedMinutes: Int!
+
+  """Booked minutes over scheduled minutes, 0 to 100."""
+  loadPercent: Float!
+  completed: Int!
+  noShow: Int!
+
+  """no_show / (completed + no_show), 0 to 1."""
+  noShowShare: Float!
+
+  """User-side cancellations (system reasons excluded)."""
+  cancelled: Int!
+  lateCancelled: Int!
+
+  """
+  Late cancellations (24 h or less before start) over cancellations, 0 to 1.
+  """
+  lateCancelShare: Float!
+  acceptedOffers: Int!
+  doctorId: Int!
+  clinicId: Int!
+}
+
+type ServiceRevenue {
+  serviceId: Int!
+  serviceName: String!
+  currency: String!
+
+  """Minor currency units (kopecks, groszy) of completed appointments."""
+  revenueMinor: Float!
+  appointments: Int!
+}
+
+type Report {
+  fromDate: String!
+  toDate: String!
+  totals: ReportMetrics!
+  doctors: [DoctorReport!]!
+  revenue: [ServiceRevenue!]!
+}
+
 type Query {
   """The signed-in account."""
   me: Me!
@@ -71,6 +147,16 @@ type Query {
   """Appointments visible to the actor, filtered within that scope."""
   appointments(filter: AppointmentFilter, first: Int): [Appointment!]!
   appointment(id: Int!): Appointment
+
+  """
+  Free slots of a service across the doctors of a city for the next 14 days (clinic-local grid, R2 visibility).
+  """
+  findFreeSlots(city: String!, serviceId: Int!): [CityFreeSlot!]!
+
+  """
+  Manager report over the 90 complete days before today (Clock, UTC date).
+  """
+  managerReport: Report!
 }
 
 input AppointmentFilter {
