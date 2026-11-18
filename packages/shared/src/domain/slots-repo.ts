@@ -51,6 +51,8 @@ export interface ClinicService {
   timezone: string;
   durationMinutes: number;
   usesUltrasoundRoom: boolean;
+  priceMinor: number;
+  currency: string;
 }
 
 export async function loadClinicService(
@@ -58,8 +60,14 @@ export async function loadClinicService(
   clinicId: number,
   serviceId: number,
 ): Promise<ClinicService | null> {
-  const { rows } = await tx.query<{ timezone: string; duration_minutes: number; uses_ultrasound_room: boolean }>(
-    `SELECT c.timezone, s.duration_minutes, s.uses_ultrasound_room
+  const { rows } = await tx.query<{
+    timezone: string;
+    duration_minutes: number;
+    uses_ultrasound_room: boolean;
+    price_minor: string;
+    currency: string;
+  }>(
+    `SELECT c.timezone, s.duration_minutes, s.uses_ultrasound_room, cs.price_minor, c.currency
        FROM clinics c
        JOIN clinic_services cs ON cs.clinic_id = c.id
        JOIN services s ON s.id = cs.service_id
@@ -72,6 +80,8 @@ export async function loadClinicService(
     timezone: row.timezone,
     durationMinutes: row.duration_minutes,
     usesUltrasoundRoom: row.uses_ultrasound_room,
+    priceMinor: numberOf(row.price_minor),
+    currency: row.currency,
   };
 }
 

@@ -18,6 +18,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -311,4 +312,24 @@ export const appointmentEvents = pgTable(
     index('appointment_events_strike_idx').on(t.patientId, t.occurredAt).where(sql`${t.isStrike}`),
     index('appointment_events_unprocessed_idx').on(t.id).where(sql`${t.processedAt} IS NULL`),
   ],
+);
+
+/**
+ * Idempotency records (docs/analysis/03). Written in the same transaction as the
+ * operation they guard, so a key never exists without its effect. `request_hash`
+ * is SHA-256 of the canonical request; `response` is the stored outcome (success or a
+ * deterministic failure). Expired rows are replaced lazily on the next use of the key.
+ */
+export const idempotencyKeys = pgTable(
+  'idempotency_keys',
+  {
+    scope: text('scope').notNull(),
+    actorId: fk('actor_id').notNull(),
+    key: text('key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    response: jsonb('response').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.scope, t.actorId, t.key] }), index('idempotency_keys_expiry_idx').on(t.expiresAt)],
 );

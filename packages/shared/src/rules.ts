@@ -44,3 +44,6 @@ export const SERVICE_MIN_MINUTES = 15;
 
 /** Longest service duration a service may be configured with. */
 export const SERVICE_MAX_MINUTES = 90;
+
+/** An idempotency key is remembered for this long; after that the key is treated as new. */
+export const IDEMPOTENCY_TTL_HOURS = 24;
