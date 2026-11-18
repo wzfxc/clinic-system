@@ -1,0 +1,32 @@
+{
+  "name": "@clinic/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "start": "node dist/main.js",
+    "schema:emit": "tsx scripts/emit-schema.ts"
+  },
+  "dependencies": {
+    "@apollo/server": "^5.5.2",
+    "@as-integrations/express5": "^1.1.2",
+    "@clinic/shared": "workspace:*",
+    "@nestjs/apollo": "^14.2.1",
+    "@nestjs/common": "^12.5.1",
+    "@nestjs/core": "^12.5.1",
+    "@nestjs/graphql": "^14.2.1",
+    "@nestjs/platform-express": "^12.5.1",
+    "graphql": "^16.15.0",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^12.5.1",
+    "@types/pg": "^8.23.1"
+  }
+}
