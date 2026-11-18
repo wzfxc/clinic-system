@@ -54,6 +54,11 @@ async function claim(
 const MARK_SENT_TRIES = 3;
 
 /** The mail is already out, so a failed bookkeeping write is retried before it is reported. */
+function errorCodeOf(err: unknown): string {
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined;
+  return typeof code === 'string' || typeof code === 'number' ? String(code) : 'unknown';
+}
+
 async function markSent(pool: Pool, clock: Clock, workerId: string, id: string, report: Report): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -114,7 +119,8 @@ async function markFailed(
       WHERE id = $1 AND status = 'pending' AND claimed_by = $6`,
     [row.id, attempts, errorText(err), dead, retryAt, workerId],
   );
-  if (dead) report(`outbox ${row.id} is dead after ${attempts} attempts: ${errorText(err)}`, null);
+  // Provider messages can contain the recipient address, so the log gets only a code; the text stays in last_error.
+  if (dead) report(`outbox ${row.id} is dead after ${attempts} attempts (${errorCodeOf(err)})`, null);
   return dead ? 'dead' : 'retried';
 }
 
