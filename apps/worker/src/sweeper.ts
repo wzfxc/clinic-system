@@ -1,4 +1,4 @@
-import type { Clock } from '@clinic/shared';
+import { WaitlistService, type Clock } from '@clinic/shared';
 import type { Pool } from 'pg';
 import type { WorkerConfig } from './config.js';
 import type { Mailer } from './mailer.js';
@@ -20,6 +20,7 @@ export interface SweepResult {
   holdsFreed: number;
   keysPurged: number;
   reminders: number;
+  offersClosed: number;
   mailSent: number;
 }
 
@@ -44,10 +45,14 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
   };
   const holdsFreed = await step('holds', 0, () => releaseExpiredHolds(pool, clock, config));
   const keysPurged = await step('idempotency', 0, () => purgeExpiredIdempotencyKeys(pool, clock, config));
+  // Overdue waitlist offers go to the next candidate; the offer's own expires_at in Postgres decides.
+  const offersClosed = await step('waitlist-offers', 0, () =>
+    new WaitlistService(pool, clock).processDueOffers(config.batchSize),
+  );
   const reminders = await step('reminders', 0, () => processDueReminders(pool, clock, config, undefined, report));
   const mail = await step('mail', { sent: 0, retried: 0, dead: 0 }, () =>
     drainOutbox(pool, clock, mailer, workerId, config, undefined, report),
   );
   if (failures.length > 0) throw new AggregateError(failures, `${failures.length} sweep step(s) failed`);
-  return { holdsFreed, keysPurged, reminders, mailSent: mail.sent };
+  return { holdsFreed, keysPurged, reminders, offersClosed, mailSent: mail.sent };
 }

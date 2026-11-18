@@ -13,3 +13,6 @@ export * from './online-block.js';
 export * from './reschedule.js';
 export * from './sick-leave.js';
 export * from './status.js';
+export * from './waitlist.js';
+export * from './waitlist-cascade.js';
+export * from './waitlist-service.js';

@@ -19,6 +19,11 @@ function visitTime(payload: Payload): string {
   return `${info.localDate} ${info.localTime}`;
 }
 
+function localTime(payload: Payload, key: string): string {
+  const info = localSlotInfo(new Date(str(payload, key)), str(payload, 'timezone'));
+  return `${info.localDate} ${info.localTime}`;
+}
+
 /** Pure. An unknown template or a malformed payload throws, so the row fails loudly instead of sending junk. */
 export function renderMail(template: string, payload: Payload): RenderedMail {
   switch (template) {
@@ -36,6 +41,16 @@ export function renderMail(template: string, payload: Payload): RenderedMail {
       return {
         subject: 'Ваш запис скасовано',
         text: `Лікар не зможе прийняти вас ${str(payload, 'date')}, запис скасовано. Будь ласка, оберіть інший час.`,
+      };
+    case 'waitlist_offer':
+      return {
+        subject: 'Звільнився час до лікаря',
+        text: `Звільнився час: ${visitTime(payload)}. Підтвердіть запис до ${localTime(payload, 'expiresAt')}, інакше пропозицію буде передано далі.`,
+      };
+    case 'waitlist_confirmed':
+      return {
+        subject: 'Запис підтверджено',
+        text: `Ваш запис з листа очікування підтверджено: ${visitTime(payload)}.`,
       };
     default:
       throw new Error(`unknown mail template "${template}"`);

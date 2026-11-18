@@ -28,6 +28,7 @@ import {
   timestamp,
   unique,
   uniqueIndex,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 const id = () => bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity();
@@ -49,6 +50,14 @@ export const appointmentStatus = pgEnum('appointment_status', [
   'no_show',
   'cancelled',
 ]);
+export const waitlistEntryStatus = pgEnum('waitlist_entry_status', [
+  'waiting',
+  'offered',
+  'fulfilled',
+  'cancelled',
+  'expired',
+]);
+export const waitlistOfferStatus = pgEnum('waitlist_offer_status', ['pending', 'accepted', 'declined', 'expired']);
 export const holdKind = pgEnum('hold_kind', ['checkout', 'waitlist_offer']);
 export const exceptionKind = pgEnum('exception_kind', ['day_off', 'extra_day']);
 export const exceptionReason = pgEnum('exception_reason', ['vacation', 'sick', 'other']);
@@ -252,6 +261,11 @@ export const appointments = pgTable(
       columns: [t.clinicId, t.serviceId],
       foreignColumns: [clinicServices.clinicId, clinicServices.serviceId],
     }),
+    foreignKey({
+      name: 'appointments_waitlist_entry_fk',
+      columns: [t.waitlistEntryId],
+      foreignColumns: [waitlistEntries.id],
+    }),
     check('appointments_price_check', sql`${t.priceMinor} >= 0`),
     check(
       'appointments_duration_check',
@@ -276,6 +290,72 @@ export const appointments = pgTable(
     index('appt_service').on(t.serviceId),
     // Day views and the sick-leave sweep read one doctor's local day.
     index('appt_doctor_local_date').on(t.doctorId, t.localDate),
+  ],
+);
+
+/** Waitlist (docs/analysis/05): a patient waiting for a free time with one doctor inside a date range. */
+export const waitlistEntries = pgTable(
+  'waitlist_entries',
+  {
+    id: id(),
+    patientId: fk('patient_id').notNull().references(() => patients.id),
+    doctorId: fk('doctor_id').notNull(),
+    clinicId: fk('clinic_id').notNull(),
+    serviceId: fk('service_id').notNull(),
+    // Calendar dates of the clinic.
+    dateFrom: date('date_from', { mode: 'string' }).notNull(),
+    dateTo: date('date_to', { mode: 'string' }).notNull(),
+    priority: smallint('priority').notNull().default(0),
+    priorityReason: text('priority_reason'),
+    sourceAppointmentId: fk('source_appointment_id'),
+    status: waitlistEntryStatus('status').notNull().default('waiting'),
+    missedOffers: integer('missed_offers').notNull().default(0),
+    createdAt: tstz('created_at').notNull(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'waitlist_entries_doctor_clinic_fk',
+      columns: [t.doctorId, t.clinicId],
+      foreignColumns: [doctorClinics.doctorId, doctorClinics.clinicId],
+    }),
+    foreignKey({
+      name: 'waitlist_entries_doctor_service_fk',
+      columns: [t.doctorId, t.serviceId],
+      foreignColumns: [doctorServices.doctorId, doctorServices.serviceId],
+    }),
+    check('waitlist_entries_range_check', sql`${t.dateFrom} <= ${t.dateTo}`),
+    check('waitlist_entries_priority_check', sql`${t.priority} BETWEEN 0 AND 1`),
+    // One live entry per patient, doctor and service.
+    uniqueIndex('waitlist_entries_active_uq')
+      .on(t.patientId, t.doctorId, t.serviceId)
+      .where(sql`${t.status} IN ('waiting', 'offered')`),
+    index('waitlist_entries_queue_idx')
+      .on(t.doctorId, t.clinicId, t.priority.desc(), t.createdAt, t.id)
+      .where(sql`${t.status} = 'waiting'`),
+  ],
+);
+
+/** One time offered to one entry; the held appointment row is what blocks the slot. */
+export const waitlistOffers = pgTable(
+  'waitlist_offers',
+  {
+    id: id(),
+    entryId: fk('entry_id').notNull().references(() => waitlistEntries.id),
+    appointmentId: fk('appointment_id').notNull().references(() => appointments.id),
+    // One freed time keeps one chain id while it passes from candidate to candidate.
+    chainId: uuid('chain_id').notNull(),
+    status: waitlistOfferStatus('status').notNull().default('pending'),
+    createdAt: tstz('created_at').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    resolvedAt: tstz('resolved_at'),
+  },
+  (t) => [
+    uniqueIndex('waitlist_offers_entry_pending_uq').on(t.entryId).where(sql`${t.status} = 'pending'`),
+    uniqueIndex('waitlist_offers_appt_pending_uq').on(t.appointmentId).where(sql`${t.status} = 'pending'`),
+    // The same candidate never gets the same freed time twice.
+    unique('waitlist_offers_chain_entry_uq').on(t.chainId, t.entryId),
+    index('waitlist_offers_due_idx').on(t.expiresAt).where(sql`${t.status} = 'pending'`),
+    check('waitlist_offers_resolved_check', sql`(${t.status} = 'pending') = (${t.resolvedAt} IS NULL)`),
   ],
 );
 

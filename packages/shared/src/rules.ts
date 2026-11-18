@@ -47,3 +47,9 @@ export const SERVICE_MAX_MINUTES = 90;
 
 /** An idempotency key is remembered for this long; after that the key is treated as new. */
 export const IDEMPOTENCY_TTL_HOURS = 24;
+
+/** The waitlist cascade reads the queue in pages of this many candidates, inside one transaction. */
+export const WAITLIST_PAGE_SIZE = 20;
+
+/** After this many offers in a row that nobody answered, the waitlist entry expires. */
+export const WAITLIST_MAX_MISSED_OFFERS = 3;

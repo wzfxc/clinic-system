@@ -87,6 +87,6 @@ export async function rescheduleAppointment(
   );
   const row = rows[0];
   if (!row) throw new BookingError('CONFLICT'); // unreachable under the row lock
-  await hooks.onSlotsFreed(tx, [freedIntervalOf(current, 'rescheduled')]);
+  await hooks.onSlotsFreed(tx, [freedIntervalOf(current, 'rescheduled')], clock);
   return { appointment: toAppointment(row), late: isLateCancellation(current.startsAt, now) };
 }

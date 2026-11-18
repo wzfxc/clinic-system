@@ -11,6 +11,7 @@ import { applyActor } from './appointment.js';
 import { advisoryLock } from './hold.js';
 import { DEFAULT_HOOKS, type DomainHooks, type FreedInterval } from './hooks.js';
 import { localDateOf } from './time.js';
+import { queuePriorityEntries } from './waitlist.js';
 import { BookingError, numberOf, type Tx } from './tx.js';
 
 export const SICK_LEAVE_REASON = 'sick_leave';
@@ -37,6 +38,7 @@ interface CancelledRow {
   /** Status before the cancellation. */
   prev_status: string;
   service_id: string;
+  patient_id: string;
   starts_at: Date;
   blocked_until: Date;
   uses_ultrasound_room: boolean;
@@ -81,7 +83,7 @@ async function cancelDay(tx: Tx, now: Date, input: SickLeaveInput): Promise<Canc
         SET status = 'cancelled', cancel_reason = '${SICK_LEAVE_REASON}',
             hold_kind = NULL, hold_expires_at = NULL, updated_at = $4
        FROM day WHERE a.id = day.id
-     RETURNING a.id, day.status::text AS prev_status, a.service_id, a.starts_at, a.blocked_until, a.uses_ultrasound_room`,
+     RETURNING a.id, day.status::text AS prev_status, a.service_id, a.patient_id, a.starts_at, a.blocked_until, a.uses_ultrasound_room`,
     [input.doctorId, input.clinicId, input.date, now],
   );
   return rows;
@@ -138,15 +140,27 @@ export async function markSickLeave(
   // A visit that never left the checkout hold was not promised to anyone, so it gets no mail.
   const confirmed = cancelled.filter((r) => r.prev_status !== 'held').map((r) => numberOf(r.id));
   if (confirmed.length > 0) await queueMails(tx, now, confirmed);
+  const confirmedRows = cancelled.filter((r) => r.prev_status !== 'held');
+  await queuePriorityEntries(
+    tx,
+    now,
+    input.clinicId,
+    input.doctorId,
+    input.date,
+    timezone,
+    confirmedRows.map((r) => ({ patientId: numberOf(r.patient_id), serviceId: numberOf(r.service_id) })),
+    confirmedRows.map((r) => numberOf(r.id)),
+  );
   const freed: FreedInterval[] = cancelled.map((r) => ({
     doctorId: input.doctorId,
     clinicId: input.clinicId,
     serviceId: numberOf(r.service_id),
+    patientId: numberOf(r.patient_id),
     usesUltrasoundRoom: r.uses_ultrasound_room,
     start: r.starts_at,
     end: r.blocked_until,
     reason: 'sick_leave',
   }));
-  await hooks.onSlotsFreed(tx, freed);
+  await hooks.onSlotsFreed(tx, freed, clock);
   return { applied: true, cancelledAppointmentIds: ids };
 }

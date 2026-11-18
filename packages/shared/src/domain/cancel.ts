@@ -52,6 +52,7 @@ export function freedIntervalOf(a: Appointment, reason: FreedReason): FreedInter
     doctorId: a.doctorId,
     clinicId: a.clinicId,
     serviceId: a.serviceId,
+    patientId: a.patientId,
     usesUltrasoundRoom: a.usesUltrasoundRoom,
     start: a.startsAt,
     end: a.blockedUntil,
@@ -84,6 +85,6 @@ export async function cancelAppointment(
   );
   const row = rows[0];
   if (!row) throw new BookingError('INVALID_STATUS_TRANSITION'); // unreachable under the row lock
-  await hooks.onSlotsFreed(tx, [freedIntervalOf(current, 'cancelled')]);
+  await hooks.onSlotsFreed(tx, [freedIntervalOf(current, 'cancelled')], clock);
   return { appointment: toAppointment(row), late };
 }
