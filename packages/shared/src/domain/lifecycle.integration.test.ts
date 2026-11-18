@@ -18,6 +18,7 @@ import { BookingError } from './tx.js';
 /** 11:00 in Kyiv on Monday 1 June 2026. */
 const NOW = new Date('2026-06-01T08:00:00Z');
 const ROUNDS = 5;
+const SICK_PATIENTS = 12;
 
 let db: TestDb;
 let svc: BookingService;
@@ -605,5 +606,157 @@ describe('online booking block (acceptance 14)', () => {
     await db.pool.query(`UPDATE patients SET online_booking_blocked_until = $1 WHERE id = $2`, [new Date(NOW.getTime() + DAY_MS * 5), p]);
 
     expect((await tryOnline(s, p, NOW)).code).toBe('OK');
+  });
+});
+
+describe('sick leave (acceptance 13)', () => {
+  async function seedDay(): Promise<{ s: Setup; ids: number[]; patients: number[] }> {
+    const s = await setup({ workStart: '09:00', workEnd: '20:00' });
+    const patients: number[] = [];
+    const ids: number[] = [];
+    for (let i = 0; i < SICK_PATIENTS; i++) {
+      const p = await seedPatient(db.pool, i + 1);
+      await db.pool.query(`UPDATE patients SET email = $1 WHERE id = $2`, [`p${i + 1}@example.test`, p]);
+      patients.push(p);
+      const start = new Date(kyivAt(day(1), '09:00').getTime() + i * 45 * MINUTE_MS);
+      ids.push((await bookOne(s, p, start)).id);
+    }
+    return { s, ids, patients };
+  }
+
+  const sick = (s: Setup, date = day(1), actor: AuthActor = registrar(s.w.clinicId)) =>
+    svc.markSickLeave({ doctorId: s.doctorId, clinicId: s.w.clinicId, date, actor });
+
+  it('13: 12 visits cancelled, 12 outbox rows, a repeat call changes nothing', async () => {
+    const { s, ids, patients } = await seedDay();
+
+    const first = await sick(s);
+    const second = await sick(s);
+
+    expect(first.applied).toBe(true);
+    expect([...first.cancelledAppointmentIds].sort((a, b) => a - b)).toEqual(ids);
+    expect(second).toEqual({ applied: false, cancelledAppointmentIds: [] });
+    const { rows: cancelled } = await db.pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM appointments WHERE status = 'cancelled' AND cancel_reason = 'sick_leave'`,
+    );
+    expect(Number(cancelled[0]?.n)).toBe(SICK_PATIENTS);
+    const { rows: mails } = await db.pool.query<{ dedupe_key: string; to_address: string; status: string; message_id: string }>(
+      `SELECT dedupe_key, to_address, status, message_id FROM email_outbox ORDER BY id`,
+    );
+    expect(mails).toHaveLength(SICK_PATIENTS);
+    expect(new Set(mails.map((m) => m.dedupe_key)).size).toBe(SICK_PATIENTS);
+    expect(new Set(mails.map((m) => m.dedupe_key))).toEqual(new Set(ids.map((id) => `sick:${id}`)));
+    expect(mails.every((m) => m.status === 'pending' && m.message_id.endsWith('@clinic.local>'))).toBe(true);
+    expect(patients).toHaveLength(SICK_PATIENTS);
+    const { rows: strikes } = await db.pool.query(`SELECT 1 FROM appointment_events WHERE is_strike OR is_late`);
+    expect(strikes).toHaveLength(0);
+    const { rows: exc } = await db.pool.query(`SELECT kind, reason FROM schedule_exceptions`);
+    expect(exc).toEqual([{ kind: 'day_off', reason: 'sick' }]);
+  });
+
+  it('closes the day: no free slots, new bookings refused, other days and doctors untouched', async () => {
+    const { s } = await seedDay();
+    const otherDoctor = await seedDoctor(db.pool, s.w);
+    const p = await seedPatient(db.pool, 50);
+    const unaffected = await bookOne(s, p, kyivAt(day(2), '10:00'));
+    const p2 = await seedPatient(db.pool, 51);
+    const elsewhere = await svc.hold({ ...holdInput(s, p2, kyivAt(day(1), '10:00')), doctorId: otherDoctor });
+
+    await sick(s);
+
+    expect(await freeTimes(s, day(1))).toEqual([]);
+    expect(await codeOf(svc.hold(holdInput(s, p, kyivAt(day(1), '09:00'))))).toBe('OUTSIDE_WORKING_HOURS');
+    expect((await row(unaffected.id)).status).toBe('booked');
+    expect((await row(elsewhere.id)).status).toBe('held');
+  });
+
+  it('calls the hook once with every freed interval; a repeat call does not call it', async () => {
+    const { s } = await seedDay();
+    await sick(s);
+    await sick(s);
+
+    expect(freed).toHaveBeenCalledTimes(1);
+    expect(freed.mock.calls[0]?.[0]).toHaveLength(SICK_PATIENTS);
+    expect(freed.mock.calls[0]?.[0]?.every((i) => i.reason === 'sick_leave')).toBe(true);
+  });
+
+  it('two simultaneous calls cancel and mail exactly once', async () => {
+    const { s } = await seedDay();
+
+    const results = await Promise.all([sick(s), sick(s)]);
+
+    expect(results.filter((r) => r.applied)).toHaveLength(1);
+    const { rows } = await db.pool.query(`SELECT 1 FROM email_outbox`);
+    expect(rows).toHaveLength(SICK_PATIENTS);
+  });
+
+  it('an extra_day becomes a day_off and its visits are cancelled', async () => {
+    const s = await setup({ weekdays: [1] }); // works Mondays only
+    const sunday = day(4); // 2026-06-07
+    await db.pool.query(
+      `INSERT INTO schedule_exceptions (doctor_id, clinic_id, on_date, kind, reason, work_start, work_end, created_at)
+       VALUES ($1, $2, $3, 'extra_day', 'other', '09:00', '13:00', $4)`,
+      [s.doctorId, s.w.clinicId, sunday, NOW],
+    );
+    const p = await seedPatient(db.pool, 1);
+    const a = await bookOne(s, p, kyivAt(sunday, '10:00'));
+
+    const res = await sick(s, sunday);
+
+    expect(res).toEqual({ applied: true, cancelledAppointmentIds: [a.id] });
+    const { rows } = await db.pool.query(`SELECT kind, reason, work_start FROM schedule_exceptions`);
+    expect(rows).toEqual([{ kind: 'day_off', reason: 'sick', work_start: null }]);
+  });
+
+  it('a held visit is cancelled without a mail; a visit that already started is left alone', async () => {
+    const s = await setup();
+    const [p1, p2] = [await seedPatient(db.pool, 1), await seedPatient(db.pool, 2)] as [number, number];
+    const held = await svc.hold(holdInput(s, p1, kyivAt(day(1), '12:00')));
+    const early = await bookOne(s, p2, kyivAt(day(1), '09:00'));
+    clock.set(kyivAt(day(1), '09:30'));
+
+    const res = await sick(s);
+
+    expect(res.cancelledAppointmentIds).toEqual([held.id]);
+    expect((await row(early.id)).status).toBe('booked');
+    const { rows } = await db.pool.query(`SELECT 1 FROM email_outbox`);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('a hold that replaces an own hold of a doctor on sick leave does not deadlock with it', async () => {
+    const s = await setup();
+    const p = await seedPatient(db.pool, 1);
+    await svc.hold(holdInput(s, p, kyivAt(day(1), '12:00')));
+
+    const results = await Promise.all([
+      codeOf(svc.hold(holdInput(s, p, kyivAt(day(2), '12:00')))),
+      codeOf(sick(s)),
+    ]);
+
+    expect(results).toEqual(['OK', 'OK']);
+  });
+
+  it('a patient without an email still gets an outbox row, marked dead', async () => {
+    const s = await setup();
+    const p = await seedPatient(db.pool, 1);
+    const a = await bookOne(s, p, kyivAt(day(1), '10:00'));
+
+    await sick(s);
+
+    const { rows } = await db.pool.query(`SELECT dedupe_key, status, last_error FROM email_outbox`);
+    expect(rows).toEqual([{ dedupe_key: `sick:${a.id}`, status: 'dead', last_error: 'no_email' }]);
+  });
+
+  it('only the registrar of that clinic; the doctor must work there that day; no past dates', async () => {
+    const s = await setup({ weekdays: [1] });
+    const other = await seedWorld(db.pool);
+
+    expect(await codeOf(sick(s, day(1), registrar(other.clinicId)))).toBe('FORBIDDEN');
+    expect(await codeOf(sick(s, day(1), doctorActor(s.doctorId)))).toBe('FORBIDDEN');
+    expect(await codeOf(sick(s, day(1)))).toBe('VALIDATION_FAILED'); // Wednesday: no template
+    expect(await codeOf(sick(s, '2026-05-25'))).toBe('VALIDATION_FAILED'); // before today
+    expect(await codeOf(sick(s, 'tomorrow'))).toBe('VALIDATION_FAILED');
+    const { rows } = await db.pool.query(`SELECT 1 FROM schedule_exceptions`);
+    expect(rows).toHaveLength(0);
   });
 });

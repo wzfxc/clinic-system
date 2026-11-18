@@ -11,4 +11,5 @@ export * from './cancel.js';
 export * from './hooks.js';
 export * from './online-block.js';
 export * from './reschedule.js';
+export * from './sick-leave.js';
 export * from './status.js';

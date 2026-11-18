@@ -333,3 +333,36 @@ export const idempotencyKeys = pgTable(
   },
   (t) => [primaryKey({ columns: [t.scope, t.actorId, t.key] }), index('idempotency_keys_expiry_idx').on(t.expiresAt)],
 );
+
+export const emailStatus = pgEnum('email_status', ['pending', 'sent', 'dead']);
+
+/**
+ * Transactional outbox for mail (docs/analysis/04, sections 2 and 4). A row is written in the
+ * same transaction as the business change that causes the mail, so "decide to send" is
+ * exactly-once (`dedupe_key` is unique) while delivery by the worker is at-least-once.
+ * `to_address` is a snapshot; a patient without an email gets a `dead` row so nothing is lost silently.
+ */
+export const emailOutbox = pgTable(
+  'email_outbox',
+  {
+    id: id(),
+    dedupeKey: text('dedupe_key').notNull(),
+    toAddress: text('to_address'),
+    patientId: fk('patient_id'),
+    template: text('template').notNull(),
+    payload: jsonb('payload').notNull(),
+    messageId: text('message_id').generatedAlwaysAs(sql`'<outbox-' || id || '@clinic.local>'`),
+    status: emailStatus('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: tstz('next_attempt_at').notNull(),
+    claimedBy: text('claimed_by'),
+    claimedUntil: tstz('claimed_until'),
+    sentAt: tstz('sent_at'),
+    lastError: text('last_error'),
+    createdAt: tstz('created_at').notNull(),
+  },
+  (t) => [
+    unique('email_outbox_dedupe_uq').on(t.dedupeKey),
+    index('email_outbox_due_idx').on(t.nextAttemptAt).where(sql`${t.status} = 'pending'`),
+  ],
+);

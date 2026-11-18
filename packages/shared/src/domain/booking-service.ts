@@ -11,6 +11,7 @@ import { confirmAppointment, type ConfirmInput } from './confirm.js';
 import { holdAppointment, type HoldInput } from './hold.js';
 import { DEFAULT_HOOKS, type DomainHooks } from './hooks.js';
 import { rescheduleAppointment, type RescheduleInput, type RescheduleResult } from './reschedule.js';
+import { markSickLeave, type SickLeaveInput, type SickLeaveResult } from './sick-leave.js';
 import { changeAppointmentStatus, type ChangeStatusInput } from './status.js';
 import type { FreeSlot } from './slots.js';
 import { loadFreeSlots, type FreeSlotsRequest } from './slots-repo.js';
@@ -48,6 +49,10 @@ export class BookingService {
 
   changeStatus(input: ChangeStatusInput): Promise<Appointment> {
     return this.run((tx, clock) => changeAppointmentStatus(tx, clock, input));
+  }
+
+  markSickLeave(input: SickLeaveInput): Promise<SickLeaveResult> {
+    return this.run((tx, clock) => markSickLeave(tx, clock, input, this.hooks));
   }
 
   private async run<T>(fn: (tx: Tx, clock: Clock) => Promise<T>): Promise<T> {
