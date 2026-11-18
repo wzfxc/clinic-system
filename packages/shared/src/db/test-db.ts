@@ -6,10 +6,22 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { Pool, type PoolClient } from 'pg';
+import { Client, Pool, type PoolClient } from 'pg';
 
 const DEFAULT_URL = 'postgres://clinic:clinic@localhost:5432/clinic';
 const POOL_SIZE = 25;
+const ADMIN_SHUTDOWN = '57P01';
+
+/** Runs `fn` on a dedicated admin connection that is always closed afterwards. */
+async function withAdmin<T>(url: string, fn: (admin: Client) => Promise<T>): Promise<T> {
+  const admin = new Client({ connectionString: url });
+  await admin.connect();
+  try {
+    return await fn(admin);
+  } finally {
+    await admin.end();
+  }
+}
 
 export interface TestDb {
   pool: Pool;
@@ -30,10 +42,15 @@ export async function createTestDb(): Promise<TestDb> {
   const baseUrl = process.env.DATABASE_URL ?? DEFAULT_URL;
   const name = `clinic_test_${randomUUID().replace(/-/g, '')}`;
 
-  const admin = new Pool({ connectionString: withDatabase(baseUrl, 'postgres'), max: 1 });
-  await admin.query(`CREATE DATABASE ${name}`);
+  const adminUrl = withDatabase(baseUrl, 'postgres');
+  await withAdmin(adminUrl, (admin) => admin.query(`CREATE DATABASE ${name}`));
 
   const pool = new Pool({ connectionString: withDatabase(baseUrl, name), max: POOL_SIZE });
+  // 57P01 = admin_shutdown: expected when the database is dropped under idle clients.
+  pool.on('error', (err: Error & { code?: string }) => {
+    if (err.code === ADMIN_SHUTDOWN) return;
+    console.error('[test-db] unexpected pool error', err);
+  });
   await migrate(drizzle(pool), { migrationsFolder: path.resolve(import.meta.dirname, '../../drizzle') });
 
   return {
@@ -62,8 +79,7 @@ export async function createTestDb(): Promise<TestDb> {
     },
     async close() {
       await pool.end();
-      await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
-      await admin.end();
+      await withAdmin(adminUrl, (admin) => admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`));
     },
   };
 }
