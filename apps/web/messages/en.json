@@ -55,6 +55,26 @@
     "status_no_show": "No-show",
     "status_cancelled": "Cancelled",
     "status_waiting": "Waiting",
-    "status_offered": "Offered"
+    "status_offered": "Offered",
+    "selectDoctorPrompt": "Select a doctor",
+    "doctorRequired": "Please select a specific doctor for the waitlist",
+    "selectTimeToReschedule": "Choose a new time to reschedule appointment",
+    "confirmReschedule": "Confirm reschedule",
+    "searchPatientPlaceholder": "Phone (+380...), name or email",
+    "searchPatient": "Find patient",
+    "selectPatientFirst": "Find and select a patient by phone or name first",
+    "selectedPatient": "Selected patient",
+    "dayBoard": "Day board",
+    "boardAll": "All",
+    "boardWaiting": "Expected",
+    "boardLate": "Late",
+    "boardWithDoctor": "With doctor (checked in)",
+    "boardDone": "Completed / no-show",
+    "lateBadge": "Late",
+    "dayView": "Day",
+    "weekView": "Week (7 days)",
+    "upcomingVisits": "Upcoming visits",
+    "pastVisits": "Past & cancelled visits",
+    "weeklyTemplate": "Doctor weekly template"
   }
 }

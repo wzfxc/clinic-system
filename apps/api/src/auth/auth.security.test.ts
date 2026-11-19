@@ -12,7 +12,7 @@ import { FixedClock } from '@clinic/shared';
 import { createTestDb, type TestDb } from '@clinic/shared/testing';
 import { buildGraphqlOptions } from '../graphql/graphql.options.js';
 import { AuthResolver } from './auth.resolver.js';
-import { FAILURE_WINDOW_MS, LOCK_MS, MAX_FAILURES } from './login-throttle.js';
+import { FAILURE_WINDOW_MS, LOCK_MS, MAX_FAILURES, MAX_IP_REGISTRATIONS } from './login-throttle.js';
 import * as password from './password.js';
 
 vi.mock('./password.js', async (importOriginal) => {
@@ -145,8 +145,8 @@ describe('login throttling', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('does not lock out the legitimate account owner when another device sprays wrong passwords', async () => {
-    const loginFromDevice = async (email: string, pw: string, ua: string): Promise<GqlResponse> => {
+  it('does not allow bypassing login or registration throttling by rotating User-Agent (60 wrong attempts + 61st valid)', async () => {
+    const loginWithUa = async (email: string, pw: string, ua: string): Promise<GqlResponse> => {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'user-agent': ua },
@@ -154,14 +154,32 @@ describe('login throttling', () => {
       });
       return (await res.json()) as GqlResponse;
     };
-    for (let i = 0; i < MAX_FAILURES; i += 1) {
-      expect(codeOf(await loginFromDevice('user@example.test', 'wrong-password', 'AttackerBot/1.0'))).toBe(
-        'INVALID_CREDENTIALS',
-      );
+    for (let i = 0; i < 60; i += 1) {
+      const code = codeOf(await loginWithUa('user@example.test', `wrong-${i}`, `RotatingUA/${i}`));
+      expect(code).toBe(i < MAX_FAILURES ? 'INVALID_CREDENTIALS' : 'RATE_LIMITED');
     }
-    expect(codeOf(await loginFromDevice('user@example.test', PASSWORD, 'AttackerBot/1.0'))).toBe('RATE_LIMITED');
-    const ownerRes = await loginFromDevice('user@example.test', PASSWORD, 'OwnerBrowser/1.0');
-    expect(ownerRes.errors).toBeUndefined();
-    expect(ownerRes.data?.['login']).toEqual({ role: 'patient' });
+    // 61st attempt with the valid password and a fresh User-Agent must still be blocked
+    const attempt61 = await loginWithUa('user@example.test', PASSWORD, 'FreshBrowser/61.0');
+    expect(codeOf(attempt61)).toBe('RATE_LIMITED');
+
+    // Registration rate limit cannot be bypassed by rotating User-Agent either (beforeEach already did 1 register)
+    for (let i = 1; i < MAX_IP_REGISTRATIONS; i += 1) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'user-agent': `RegBot/${i}` },
+        body: JSON.stringify({
+          query: `mutation { register(input: {email: "reg${i}@example.test", password: "${PASSWORD}", fullName: "R${i}"}) { role } }`,
+        }),
+      });
+      expect(((await r.json()) as GqlResponse).errors).toBeUndefined();
+    }
+    const overLimit = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': 'RegBot/999' },
+      body: JSON.stringify({
+        query: `mutation { register(input: {email: "reg999@example.test", password: "${PASSWORD}", fullName: "R999"}) { role } }`,
+      }),
+    });
+    expect(codeOf((await overLimit.json()) as GqlResponse)).toBe('RATE_LIMITED');
   });
 });

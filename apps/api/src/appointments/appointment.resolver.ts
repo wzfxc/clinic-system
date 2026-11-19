@@ -19,17 +19,52 @@ export class AppointmentFilterInput {
 
   @Field(() => Int, { nullable: true })
   clinicId?: number;
+
+  @Field(() => String, { nullable: true })
+  date?: string;
+
+  @Field(() => String, { nullable: true })
+  dateFrom?: string;
+
+  @Field(() => String, { nullable: true })
+  dateTo?: string;
+
+  @Field(() => String, { nullable: true })
+  status?: string;
 }
 
 @Resolver(() => AppointmentModel)
 export class AppointmentResolver {
-  @Query(() => [AppointmentModel], { description: 'The signed-in patient\'s own appointments.' })
+  @Query(() => [AppointmentModel], { description: 'The signed-in patient\'s own appointments (newest first).' })
   async myAppointments(
     @Context() ctx: RequestContext,
     @Args('first', { type: () => Int, nullable: true }) first?: number,
   ): Promise<Appointment[]> {
     const actor = requirePatient(ctx);
-    return listAppointments(ctx.pool, actor, {}, pageSize(first));
+    return listAppointments(ctx.pool, actor, {}, pageSize(first), 'desc');
+  }
+
+  @Query(() => [PatientModel], { description: 'Registrar searches patients by phone, name or email.' })
+  async searchPatients(
+    @Context() ctx: RequestContext,
+    @Args('query', { type: () => String }) query: string,
+  ): Promise<PatientModel[]> {
+    const actor = requireAuthActor(ctx);
+    if (actor.role !== 'receptionist') throw graphQLError(ERROR_CODES.FORBIDDEN, 'registrars only');
+    const term = query.trim();
+    if (term.length < 2 || term.length > 100) {
+      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'query must be 2 to 100 characters');
+    }
+    const { rows } = await ctx.pool.query<PatientModel>(
+      `SELECT id::int AS id, full_name AS "fullName", phone, email
+         FROM patients
+        WHERE phone ILIKE '%' || $1 || '%'
+           OR full_name ILIKE '%' || $1 || '%'
+           OR email ILIKE '%' || $1 || '%'
+        ORDER BY id LIMIT 20`,
+      [term],
+    );
+    return rows;
   }
 
   @Query(() => [AppointmentModel], { description: 'Appointments visible to the actor, filtered within that scope.' })

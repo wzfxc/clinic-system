@@ -25,7 +25,6 @@ import {
 const STAFF_STATUSES = ['checked_in', 'no_show', 'completed'] as const;
 type StaffStatus = (typeof STAFF_STATUSES)[number];
 const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
-const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function isStaffStatus(value: string): value is StaffStatus {
   return (STAFF_STATUSES as readonly string[]).includes(value);
@@ -41,13 +40,6 @@ function validateIdempotencyKey(key: string): string {
 function validateDate(value: string, field: string): string {
   if (!isValidIsoDate(value)) {
     throw graphQLError(ERROR_CODES.VALIDATION_FAILED, `${field} must be a valid YYYY-MM-DD calendar date`);
-  }
-  return value;
-}
-
-function validateTime(value: string, field: string): string {
-  if (!TIME_PATTERN.test(value)) {
-    throw graphQLError(ERROR_CODES.VALIDATION_FAILED, `${field} must be HH:MM`);
   }
   return value;
 }
@@ -306,44 +298,18 @@ export class BookingResolver {
     @Args('input', { type: () => UpsertScheduleTemplateInput }) input: UpsertScheduleTemplateInput,
   ): Promise<boolean> {
     const actor = requireAuthActor(ctx);
-    if (actor.role !== 'receptionist' || actor.clinicId !== input.clinicId) {
-      throw graphQLError(ERROR_CODES.FORBIDDEN, 'only the clinic registrar may edit schedule templates');
-    }
-    if (!Number.isInteger(input.weekday) || input.weekday < 1 || input.weekday > 7) {
-      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'weekday must be between 1 and 7');
-    }
-    const workStart = validateTime(input.workStart, 'workStart');
-    const workEnd = validateTime(input.workEnd, 'workEnd');
-    if (workStart >= workEnd) throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'workStart must precede workEnd');
-    const breakStart = input.breakStart ? validateTime(input.breakStart, 'breakStart') : null;
-    const breakEnd = input.breakEnd ? validateTime(input.breakEnd, 'breakEnd') : null;
-    if ((breakStart === null) !== (breakEnd === null)) {
-      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'breakStart and breakEnd must be provided together');
-    }
-    if (breakStart !== null && breakEnd !== null && (breakStart < workStart || breakEnd <= breakStart || breakEnd > workEnd)) {
-      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'break must fall within working hours');
-    }
-    const client = await ctx.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(`DELETE FROM schedule_templates WHERE doctor_id = $1 AND clinic_id = $2 AND weekday = $3`, [
-        input.doctorId,
-        input.clinicId,
-        input.weekday,
-      ]);
-      await client.query(
-        `INSERT INTO schedule_templates (doctor_id, clinic_id, weekday, work_start, work_end, break_start, break_end)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [input.doctorId, input.clinicId, input.weekday, workStart, workEnd, breakStart, breakEnd],
-      );
-      await client.query('COMMIT');
-      return true;
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    if (actor.role !== 'receptionist') throw graphQLError(ERROR_CODES.FORBIDDEN, 'registrars only');
+    return ctx.booking.upsertScheduleTemplate({
+      doctorId: input.doctorId,
+      clinicId: input.clinicId,
+      weekday: input.weekday,
+      workStart: input.workStart,
+      workEnd: input.workEnd,
+      breakStart: input.breakStart ?? null,
+      breakEnd: input.breakEnd ?? null,
+      ...(input.effectiveFrom !== undefined ? { effectiveFrom: input.effectiveFrom } : {}),
+      actor,
+    });
   }
 
   @Mutation(() => Boolean, { description: 'Registrar sets a date exception (vacation, sick, extra_day) for a doctor.' })
@@ -352,34 +318,24 @@ export class BookingResolver {
     @Args('input', { type: () => UpsertScheduleExceptionInput }) input: UpsertScheduleExceptionInput,
   ): Promise<boolean> {
     const actor = requireAuthActor(ctx);
-    if (actor.role !== 'receptionist' || actor.clinicId !== input.clinicId) {
-      throw graphQLError(ERROR_CODES.FORBIDDEN, 'only the clinic registrar may edit schedule exceptions');
-    }
-    const date = validateDate(input.date, 'date');
+    if (actor.role !== 'receptionist') throw graphQLError(ERROR_CODES.FORBIDDEN, 'registrars only');
     if (input.kind !== 'day_off' && input.kind !== 'extra_day') {
       throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'kind must be day_off or extra_day');
     }
     if (input.reason !== 'vacation' && input.reason !== 'sick' && input.reason !== 'other') {
       throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'reason must be vacation, sick or other');
     }
-    if (input.kind === 'day_off' && input.reason === 'sick') {
-      await ctx.booking.markSickLeave({ doctorId: input.doctorId, clinicId: input.clinicId, date, actor });
-      return true;
-    }
-    const workStart = input.kind === 'extra_day' ? validateTime(input.workStart ?? '', 'workStart') : null;
-    const workEnd = input.kind === 'extra_day' ? validateTime(input.workEnd ?? '', 'workEnd') : null;
-    if (input.kind === 'extra_day' && (!workStart || !workEnd || workStart >= workEnd)) {
-      throw graphQLError(ERROR_CODES.VALIDATION_FAILED, 'extra_day requires workStart < workEnd');
-    }
-    await ctx.pool.query(
-      `INSERT INTO schedule_exceptions (doctor_id, clinic_id, on_date, kind, reason, work_start, work_end, created_by, created_at)
-       VALUES ($1, $2, $3::date, $4::exception_kind, $5::exception_reason, $6, $7, $8, $9)
-       ON CONFLICT (doctor_id, clinic_id, on_date) DO UPDATE
-         SET kind = EXCLUDED.kind, reason = EXCLUDED.reason,
-             work_start = EXCLUDED.work_start, work_end = EXCLUDED.work_end,
-             break_start = NULL, break_end = NULL`,
-      [input.doctorId, input.clinicId, date, input.kind, input.reason, workStart, workEnd, actor.userId, ctx.clock.now()],
-    );
-    return true;
+    return ctx.booking.upsertScheduleException({
+      doctorId: input.doctorId,
+      clinicId: input.clinicId,
+      date: validateDate(input.date, 'date'),
+      kind: input.kind,
+      reason: input.reason,
+      workStart: input.workStart ?? null,
+      workEnd: input.workEnd ?? null,
+      breakStart: input.breakStart ?? null,
+      breakEnd: input.breakEnd ?? null,
+      actor,
+    });
   }
 }

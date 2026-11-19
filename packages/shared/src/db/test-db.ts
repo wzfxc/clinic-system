@@ -107,7 +107,7 @@ export async function prepareE2ePatients(databaseUrl?: string): Promise<void> {
       await client.query('BEGIN');
       await client.query(`SELECT set_config('app.clock_now', $1, true)`, [now.toISOString()]);
       const patientIds: number[] = [];
-      for (const email of E2E_PATIENT_EMAILS) {
+      for (const [idx, email] of E2E_PATIENT_EMAILS.entries()) {
         const u = await client.query<{ id: string }>(
           `INSERT INTO users (email, role, password_hash, created_at)
            VALUES ($1, 'patient', $2, $3)
@@ -116,15 +116,17 @@ export async function prepareE2ePatients(databaseUrl?: string): Promise<void> {
           [email, hash, now],
         );
         const userId = Number(u.rows[0]?.id ?? 0);
+        const phone = `+38050999000${idx + 1}`;
         const p = await client.query<{ id: string }>(
-          `INSERT INTO patients (user_id, full_name, email)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email
+          `INSERT INTO patients (user_id, full_name, phone, email)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, phone = EXCLUDED.phone
            RETURNING id`,
-          [userId, `E2E ${email}`, email],
+          [userId, `E2E ${email}`, phone, email],
         );
         patientIds.push(Number(p.rows[0]?.id ?? 0));
       }
+      await client.query(`UPDATE patients SET phone = '+38050' || lpad(id::text, 7, '0') WHERE phone IS NULL`);
       await client.query(`DELETE FROM login_attempts WHERE email = ANY($1::text[])`, [[...E2E_PATIENT_EMAILS]]);
       await client.query(
         `UPDATE waitlist_offers

@@ -179,4 +179,55 @@ test.describe('clinic booking e2e', () => {
       await nyContext.close();
     }
   });
+
+  test('5. waitlist requires explicit doctor choice, patient picks custom reschedule slot, and registrar searches patient by phone and uses day board', async ({
+    page,
+  }) => {
+    await signIn(page, 'e2e-p1@clinic.local');
+
+    // Submitting waitlist with "All doctors" must show field error, never silently pick doctor #1
+    await page.getByTestId('join-waitlist-btn').click();
+    await expect(page.getByTestId('waitlist-doctor-error')).toBeVisible();
+
+    // Patient books a slot, then opens the reschedule time picker and chooses a specific target slot
+    const slots = page.locator('[data-testid="slots-grid"] button');
+    await expect(slots.first()).toBeVisible();
+    const firstSlot = slots.first();
+    const doctorId = await firstSlot.getAttribute('data-doctor-id');
+    await firstSlot.click();
+    const holdBanner = page.getByTestId('active-hold');
+    await expect(holdBanner).toBeVisible();
+    const apptId = Number(await holdBanner.getAttribute('data-appointment-id'));
+    await page.getByTestId('confirm-hold-btn').click();
+    await expect(page.getByTestId(`appointment-${apptId}`)).toHaveAttribute('data-status', 'booked');
+
+    await page.getByTestId(`reschedule-appointment-${apptId}`).click();
+    await expect(page.getByTestId('reschedule-banner')).toBeVisible();
+    const select = page.getByTestId('reschedule-slot-select');
+    const options = select.locator('option');
+    expect(await options.count()).toBeGreaterThan(1);
+    const secondOptionValue = await options.nth(1).getAttribute('value');
+    await select.selectOption(secondOptionValue!);
+    await page.getByTestId('confirm-reschedule-btn').click();
+    await expect(page.getByTestId('booking-status')).toContainText(`Rescheduled #${apptId}`);
+    expect(doctorId).toBeTruthy();
+
+    // Sign out and sign in as registrar
+    await page.getByTestId('logout-btn').click();
+    await signIn(page, 'reception1@clinic.local');
+    await expect(page.getByTestId('registrar-desk')).toBeVisible();
+    await expect(page.getByTestId('board-date')).toBeVisible();
+
+    // Clicking a slot without selecting a patient must NOT book for Patient #1
+    await page.locator('[data-testid="slots-grid"] button').first().click();
+    await expect(page.getByTestId('booking-error')).toBeVisible();
+    await expect(page.getByTestId('active-hold')).toHaveCount(0);
+
+    // Registrar searches patient by phone and selects them
+    await page.getByTestId('registrar-patient-search').fill('+380509990002');
+    await page.getByTestId('registrar-search-btn').click();
+    await expect(page.getByTestId('patient-search-results')).toContainText('e2e-p2@clinic.local');
+    await page.locator('[data-testid^="select-patient-"]').first().click();
+    await expect(page.getByTestId('selected-patient-banner')).toContainText('e2e-p2@clinic.local');
+  });
 });

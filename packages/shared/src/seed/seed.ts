@@ -138,8 +138,9 @@ async function insertPatients(client: PoolClient, passwordHash: string, now: Dat
     [emails, passwordHash, now],
   );
   const { rows } = await client.query<{ id: number }>(
-    `INSERT INTO patients (user_id, full_name, email)
-     SELECT u.id, 'Patient ' || u.id, u.email FROM users u WHERE u.role = 'patient' ORDER BY u.id RETURNING id`,
+    `INSERT INTO patients (user_id, full_name, phone, email)
+     SELECT u.id, 'Patient ' || u.id, '+38050' || lpad(u.id::text, 7, '0'), u.email
+       FROM users u WHERE u.role = 'patient' ORDER BY u.id RETURNING id`,
   );
   return rows.map((r) => r.id);
 }

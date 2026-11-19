@@ -103,6 +103,9 @@ export class UpsertScheduleTemplateInput {
 
   @Field(() => String, { nullable: true })
   breakEnd?: string;
+
+  @Field(() => String, { nullable: true })
+  effectiveFrom?: string;
 }
 
 @InputType('UpsertScheduleExceptionInput')
@@ -127,6 +130,12 @@ export class UpsertScheduleExceptionInput {
 
   @Field(() => String, { nullable: true })
   workEnd?: string;
+
+  @Field(() => String, { nullable: true })
+  breakStart?: string;
+
+  @Field(() => String, { nullable: true })
+  breakEnd?: string;
 }
 
 @ObjectType('InAppReminder')

@@ -192,8 +192,11 @@ type Query {
   """The signed-in account."""
   me: Me!
 
-  """The signed-in patient's own appointments."""
+  """The signed-in patient's own appointments (newest first)."""
   myAppointments(first: Int): [Appointment!]!
+
+  """Registrar searches patients by phone, name or email."""
+  searchPatients(query: String!): [Patient!]!
 
   """Appointments visible to the actor, filtered within that scope."""
   appointments(filter: AppointmentFilter, first: Int): [Appointment!]!
@@ -235,6 +238,10 @@ input AppointmentFilter {
   patientId: Int
   doctorId: Int
   clinicId: Int
+  date: String
+  dateFrom: String
+  dateTo: String
+  status: String
 }
 
 type Mutation {
@@ -302,6 +309,7 @@ input UpsertScheduleTemplateInput {
   workEnd: String!
   breakStart: String
   breakEnd: String
+  effectiveFrom: String
 }
 
 input UpsertScheduleExceptionInput {
@@ -312,6 +320,8 @@ input UpsertScheduleExceptionInput {
   reason: String!
   workStart: String
   workEnd: String
+  breakStart: String
+  breakEnd: String
 }
 
 type Subscription {

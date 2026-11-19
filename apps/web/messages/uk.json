@@ -55,6 +55,26 @@
     "status_no_show": "Неявка",
     "status_cancelled": "Скасовано",
     "status_waiting": "Очікує",
-    "status_offered": "Запропоновано"
+    "status_offered": "Запропоновано",
+    "selectDoctorPrompt": "Оберіть лікаря",
+    "doctorRequired": "Оберіть конкретного лікаря для листа очікування",
+    "selectTimeToReschedule": "Оберіть новий час для перенесення запису",
+    "confirmReschedule": "Підтвердити перенесення",
+    "searchPatientPlaceholder": "Телефон (+380...), ім'я або пошта",
+    "searchPatient": "Знайти пацієнта",
+    "selectPatientFirst": "Спочатку знайдіть і оберіть пацієнта за телефоном або ім'ям",
+    "selectedPatient": "Обраний пацієнт",
+    "dayBoard": "Дошка дня",
+    "boardAll": "Усі",
+    "boardWaiting": "Очікуються",
+    "boardLate": "Запізнюються",
+    "boardWithDoctor": "У лікаря (прийшли)",
+    "boardDone": "Завершені / неявки",
+    "lateBadge": "Запізнюється",
+    "dayView": "День",
+    "weekView": "Тиждень (7 днів)",
+    "upcomingVisits": "Майбутні візити",
+    "pastVisits": "Минулі та скасовані візити",
+    "weeklyTemplate": "Тижневий шаблон лікаря"
   }
 }

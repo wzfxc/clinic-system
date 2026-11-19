@@ -11,6 +11,12 @@ import { confirmAppointment, type ConfirmInput } from './confirm.js';
 import { holdAppointment, type HoldInput } from './hold.js';
 import { DEFAULT_HOOKS, type DomainHooks } from './hooks.js';
 import { rescheduleAppointment, type RescheduleInput, type RescheduleResult } from './reschedule.js';
+import {
+  upsertScheduleException,
+  upsertScheduleTemplate,
+  type UpsertExceptionInput,
+  type UpsertTemplateInput,
+} from './schedule.js';
 import { markSickLeave, type SickLeaveInput, type SickLeaveResult } from './sick-leave.js';
 import { changeAppointmentStatus, type ChangeStatusInput } from './status.js';
 import type { FreeSlot } from './slots.js';
@@ -53,6 +59,14 @@ export class BookingService {
 
   markSickLeave(input: SickLeaveInput): Promise<SickLeaveResult> {
     return this.run((tx, clock) => markSickLeave(tx, clock, input, this.hooks));
+  }
+
+  upsertScheduleException(input: UpsertExceptionInput): Promise<boolean> {
+    return this.run((tx, clock) => upsertScheduleException(tx, clock, input, this.hooks));
+  }
+
+  upsertScheduleTemplate(input: UpsertTemplateInput): Promise<boolean> {
+    return this.run((tx, clock) => upsertScheduleTemplate(tx, clock, input));
   }
 
   private async run<T>(fn: (tx: Tx, clock: Clock) => Promise<T>): Promise<T> {

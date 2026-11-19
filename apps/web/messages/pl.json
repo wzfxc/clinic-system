@@ -55,6 +55,26 @@
     "status_no_show": "Nieobecność",
     "status_cancelled": "Anulowana",
     "status_waiting": "Oczekuje",
-    "status_offered": "Zaproponowano"
+    "status_offered": "Zaproponowano",
+    "selectDoctorPrompt": "Wybierz lekarza",
+    "doctorRequired": "Wybierz konkretnego lekarza do listy oczekujących",
+    "selectTimeToReschedule": "Wybierz nowy termin przełożenia wizyty",
+    "confirmReschedule": "Potwierdź przełożenie",
+    "searchPatientPlaceholder": "Telefon (+380...), imię lub e-mail",
+    "searchPatient": "Szukaj pacjenta",
+    "selectPatientFirst": "Najpierw wyszukaj i wybierz pacjenta po telefonie lub nazwisku",
+    "selectedPatient": "Wybrany pacjent",
+    "dayBoard": "Tablica dnia",
+    "boardAll": "Wszystkie",
+    "boardWaiting": "Oczekiwani",
+    "boardLate": "Spóźnieni",
+    "boardWithDoctor": "U lekarza (obecni)",
+    "boardDone": "Zakończone / nieobecni",
+    "lateBadge": "Spóźniony",
+    "dayView": "Dzień",
+    "weekView": "Tydzień (7 dni)",
+    "upcomingVisits": "Nadchodzące wizyty",
+    "pastVisits": "Przeszłe i anulowane wizyty",
+    "weeklyTemplate": "Szablon tygodniowy lekarza"
   }
 }

@@ -4,13 +4,26 @@
  */
 import type { Pool } from 'pg';
 import type { AuthActor } from '@clinic/shared';
-import { APPOINTMENT_COLUMNS, toAppointment, type Appointment, type AppointmentRow } from '@clinic/shared';
+import {
+  APPOINTMENT_COLUMNS,
+  BookingError,
+  isValidIsoDate,
+  toAppointment,
+  type Appointment,
+  type AppointmentRow,
+} from '@clinic/shared';
 
 export interface AppointmentFilter {
   patientId?: number | undefined;
   doctorId?: number | undefined;
   clinicId?: number | undefined;
+  date?: string | undefined;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
+  status?: string | undefined;
 }
+
+const VALID_STATUSES = new Set(['held', 'booked', 'checked_in', 'completed', 'no_show', 'cancelled']);
 
 /** SQL condition that restricts appointments to what the actor may see; pushes its parameter. */
 export function scopeCondition(actor: AuthActor, params: unknown[]): string {
@@ -37,6 +50,26 @@ function filterConditions(filter: AppointmentFilter, params: unknown[]): string[
   add('patient_id', filter.patientId);
   add('doctor_id', filter.doctorId);
   add('clinic_id', filter.clinicId);
+  if (filter.date !== undefined && filter.date !== '') {
+    if (!isValidIsoDate(filter.date)) throw new BookingError('VALIDATION_FAILED', 'date must be YYYY-MM-DD');
+    params.push(filter.date);
+    conditions.push(`local_date = $${params.length}::date`);
+  }
+  if (filter.dateFrom !== undefined && filter.dateFrom !== '') {
+    if (!isValidIsoDate(filter.dateFrom)) throw new BookingError('VALIDATION_FAILED', 'dateFrom must be YYYY-MM-DD');
+    params.push(filter.dateFrom);
+    conditions.push(`local_date >= $${params.length}::date`);
+  }
+  if (filter.dateTo !== undefined && filter.dateTo !== '') {
+    if (!isValidIsoDate(filter.dateTo)) throw new BookingError('VALIDATION_FAILED', 'dateTo must be YYYY-MM-DD');
+    params.push(filter.dateTo);
+    conditions.push(`local_date <= $${params.length}::date`);
+  }
+  if (filter.status !== undefined && filter.status !== '') {
+    if (!VALID_STATUSES.has(filter.status)) throw new BookingError('VALIDATION_FAILED', 'invalid status filter');
+    params.push(filter.status);
+    conditions.push(`status = $${params.length}::appointment_status`);
+  }
   return conditions;
 }
 
@@ -46,14 +79,16 @@ export async function listAppointments(
   actor: AuthActor,
   filter: AppointmentFilter,
   first: number,
+  order: 'asc' | 'desc' = 'asc',
 ): Promise<Appointment[]> {
   const params: unknown[] = [];
   const conditions = [scopeCondition(actor, params), ...filterConditions(filter, params)];
   params.push(first);
+  const dir = order === 'desc' ? 'DESC' : 'ASC';
   const { rows } = await pool.query<AppointmentRow>(
     `SELECT ${APPOINTMENT_COLUMNS} FROM appointments
       WHERE ${conditions.join(' AND ')}
-      ORDER BY starts_at, id LIMIT $${params.length}`,
+      ORDER BY starts_at ${dir}, id ${dir} LIMIT $${params.length}`,
     params,
   );
   return rows.map(toAppointment);

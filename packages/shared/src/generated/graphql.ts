@@ -49,8 +49,12 @@ export type AppointmentEvent = {
 
 export type AppointmentFilter = {
   clinicId?: InputMaybe<Scalars['Int']['input']>;
+  date?: InputMaybe<Scalars['String']['input']>;
+  dateFrom?: InputMaybe<Scalars['String']['input']>;
+  dateTo?: InputMaybe<Scalars['String']['input']>;
   doctorId?: InputMaybe<Scalars['Int']['input']>;
   patientId?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CityFreeSlot = {
@@ -265,7 +269,7 @@ export type Query = {
   managerReport: Report;
   /** The signed-in account. */
   me: Me;
-  /** The signed-in patient's own appointments. */
+  /** The signed-in patient's own appointments (newest first). */
   myAppointments: Array<Appointment>;
   /** In-app 24h and 2h visit reminders for the signed-in patient. */
   myReminders: Array<InAppReminder>;
@@ -273,6 +277,8 @@ export type Query = {
   myWaitlistEntries: Array<WaitlistEntry>;
   /** Pending and recent waitlist offers for the signed-in patient. */
   myWaitlistOffers: Array<WaitlistOffer>;
+  /** Registrar searches patients by phone, name or email. */
+  searchPatients: Array<Patient>;
   /** All services offered across the network. */
   services: Array<Service>;
 };
@@ -313,6 +319,11 @@ export type QueryManagerReportArgs = {
 
 export type QueryMyAppointmentsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QuerySearchPatientsArgs = {
+  query: Scalars['String']['input'];
 };
 
 export type RegisterInput = {
@@ -392,6 +403,8 @@ export type SubscriptionSlotsChangedArgs = {
 };
 
 export type UpsertScheduleExceptionInput = {
+  breakEnd?: InputMaybe<Scalars['String']['input']>;
+  breakStart?: InputMaybe<Scalars['String']['input']>;
   clinicId: Scalars['Int']['input'];
   date: Scalars['String']['input'];
   doctorId: Scalars['Int']['input'];
@@ -406,6 +419,7 @@ export type UpsertScheduleTemplateInput = {
   breakStart?: InputMaybe<Scalars['String']['input']>;
   clinicId: Scalars['Int']['input'];
   doctorId: Scalars['Int']['input'];
+  effectiveFrom?: InputMaybe<Scalars['String']['input']>;
   weekday: Scalars['Int']['input'];
   workEnd: Scalars['String']['input'];
   workStart: Scalars['String']['input'];
